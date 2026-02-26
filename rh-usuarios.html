@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>RH - Aprovação de Usuários</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="top-header">
+    <div class="container header-content">
+      <img src="assets/logo-normatel.png" alt="Normatel Engenharia" class="logo-normatel" />
+    </div>
+  </header>
+
+  <main class="container main-content">
+    <section class="page-head">
+      <h1>Aprovação de Usuários</h1>
+      <p class="page-subtitle">Cadastros pendentes para liberação no painel RH.</p>
+    </section>
+
+    <section class="card rh-list-card">
+      <div class="rh-list-actions">
+        <p id="usuariosStatus" class="rh-list-status status-message status-message--info">Carregando pendências...</p>
+        <div class="rh-list-btn-group">
+          <button type="button" id="voltarPainelBtn" class="rh-admin-btn">Voltar ao Painel RH</button>
+          <button type="button" id="sairRhBtn" class="rh-logout-btn">Sair</button>
+        </div>
+      </div>
+
+      <div id="usuariosPendentes" class="usuarios-pendentes"></div>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/pocketbase@0.21.5/dist/pocketbase.umd.js"></script>
+  <script src="pocketbase-config.js?v=20260224"></script>
+  <script src="rh-usuarios.js?v=20260225b"></script>
+</body>
+</html>

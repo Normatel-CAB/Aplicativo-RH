@@ -1,0 +1,12 @@
+{
+  "liveServer.settings.ignoreFiles": [
+    "**/.vscode/**",
+    "**/.git/**",
+    "**/pb_data/**",
+    "**/pb_migrations/**",
+    "**/*.db",
+    "**/*.db-shm",
+    "**/*.db-wal"
+  ],
+  "liveServer.settings.wait": 1000
+}

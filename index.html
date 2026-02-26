@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%235fbe4a'/%3E%3Cpath d='M14 34h36v8H14zM14 22h36v8H14z' fill='white'/%3E%3C/svg%3E" />
+  <title>Envio de atestado</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="top-header">
+    <div class="container header-content">
+      <img src="assets/logo-normatel.png" alt="Normatel Engenharia" class="logo-normatel" />
+    </div>
+  </header>
+
+  <main class="container main-content">
+    <section class="page-head">
+      <h1>Envio de atestado</h1>
+      <p class="page-subtitle">Preencha os dados abaixo para encaminhar o atestado ao RH.</p>
+    </section>
+
+    <section class="auth-access">
+      <button type="button" id="rhAccessBtn" class="rh-access-btn">RH</button>
+    </section>
+
+    <form id="rh-form" class="card" novalidate>
+      <div class="grid">
+        <label>
+          Nome
+          <input type="text" id="nome" name="nome" required />
+        </label>
+
+        <label>
+          Função
+          <input type="text" id="funcao" name="funcao" required />
+        </label>
+
+        <label>
+          Projeto
+          <select id="projeto" name="projeto" required>
+            <option value="">Selecione um projeto</option>
+            <option value="Projeto 736 - Base Imbetiba">Projeto 736 - Base Imbetiba</option>
+            <option value="Projeto 737 - Base Imboassica">Projeto 737 - Base Imboassica</option>
+            <option value="Projeto 743 - Base Cabiunas">Projeto 743 - Base Cabiunas</option>
+            <option value="Projeto 743 - Severina">Projeto 743 - Severina</option>
+            <option value="Projeto 743 - Barra do Furado">Projeto 743 - Barra do Furado</option>
+            <option value="Projeto 741 - Base UTE">Projeto 741 - Base UTE</option>
+            <option value="Projeto 741 - Base Áreas Externa">Projeto 741 - Base Áreas Externa</option>
+            <option value="Projeto 741 - Base Tapera">Projeto 741 - Base Tapera</option>
+          </select>
+        </label>
+
+        <label>
+          Tipo de atestado
+          <select id="tipoAtestado" name="tipoAtestado" required>
+            <option value="">Selecione um tipo</option>
+            <option value="Odontológico">Odontológico</option>
+            <option value="Licença maternidade">Licença maternidade</option>
+            <option value="Atestado médico">Atestado médico</option>
+            <option value="Declaração">Declaração</option>
+          </select>
+        </label>
+
+        <label id="horasComparecimentoWrapper" class="hidden">
+          Horas de comparecimento
+          <input type="number" id="horasComparecimento" name="horasComparecimento" min="1" step="1" />
+        </label>
+
+        <label>
+          Data de início
+          <input type="date" id="dataInicio" name="dataInicio" required />
+        </label>
+
+        <label>
+          Data de fim
+          <input type="date" id="dataFim" name="dataFim" required />
+        </label>
+
+        <label>
+          Dias
+          <input type="number" id="dias" name="dias" min="1" step="1" required />
+        </label>
+
+        <label class="full-width file-upload-group">
+          Enviar arquivo(s)
+          <input type="file" id="arquivos" name="arquivos" class="file-upload-control" multiple required />
+          <small class="upload-help">Anexe um ou mais arquivos (PDF, imagem ou documento).</small>
+        </label>
+      </div>
+
+      <button type="submit">Enviar</button>
+      <p id="mensagem" class="status-message status-message--info" role="status" aria-live="polite"></p>
+    </form>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://unpkg.com/pocketbase@0.21.5/dist/pocketbase.umd.js"></script>
+  <script src="pocketbase-config.js?v=20260220"></script>
+  <script src="script.js?v=20260226a"></script>
+</body>
+</html>
