@@ -8,8 +8,11 @@ const filtroDataFimInput = document.getElementById('filtroDataFim');
 const filtroTipoSelect = document.getElementById('filtroTipoAtestado');
 const baixarFiltradosBtn = document.getElementById('baixarFiltradosBtn');
 
-let pocketbaseClient;
-let pocketbaseConfig;
+
+import { db, auth } from './firebase-config.js';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { getStorage, ref, getDownloadURL } from 'firebase/storage';
+
 let registrosProjeto = [];
 let registrosProjetoFiltrados = [];
 let downloadMassaEmAndamento = false;
@@ -153,11 +156,10 @@ function montarNomePdfPorRegistro(record, indice = 0, totalArquivos = 1) {
   return `${base}.pdf`;
 }
 
-function montarLinkArquivo(record, nomeArquivo) {
-  const nomeCollection = encodeURIComponent(pocketbaseConfig.collection);
-  const idRecord = encodeURIComponent(record.id);
-  const arquivo = encodeURIComponent(nomeArquivo);
-  return `${pocketbaseConfig.baseUrl}/api/files/${nomeCollection}/${idRecord}/${arquivo}?download=1`;
+
+function montarLinkArquivo(record, urlArquivo) {
+  // urlArquivo já é a URL do Firebase Storage
+  return urlArquivo;
 }
 
 function montarUrlComFileToken(urlArquivo, fileToken) {
@@ -235,17 +237,18 @@ function criarCardRegistro(record) {
   const card = document.createElement('article');
   card.className = 'detalhe-card';
 
-  const arquivos = Array.isArray(record.arquivo_pdf)
-    ? record.arquivo_pdf
-    : typeof record.arquivo_pdf === 'string' && record.arquivo_pdf
-      ? [record.arquivo_pdf]
+
+  const arquivos = Array.isArray(record.arquivos)
+    ? record.arquivos
+    : typeof record.arquivos === 'string' && record.arquivos
+      ? [record.arquivos]
       : [];
 
   const arquivosHtml = arquivos.length
     ? arquivos
-      .map((arquivo, indice) => {
+      .map((urlArquivo, indice) => {
         const nomeExibicao = montarNomePdfPorRegistro(record, indice, arquivos.length);
-        return `<a class="download-pdf-link" href="${montarLinkArquivo(record, arquivo)}" download="${nomeExibicao}" data-download-name="${encodeURIComponent(nomeExibicao)}">${nomeExibicao}</a>`;
+        return `<a class="download-pdf-link" href="${montarLinkArquivo(record, urlArquivo)}" download="${nomeExibicao}" data-download-name="${encodeURIComponent(nomeExibicao)}">${nomeExibicao}</a>`;
       })
       .join('<br>')
     : '-';
@@ -273,15 +276,15 @@ function criarCardRegistro(record) {
 
 function coletarArquivosDosRegistros(registros) {
   return registros.flatMap((registro) => {
-    const arquivos = Array.isArray(registro?.arquivo_pdf)
-      ? registro.arquivo_pdf
-      : typeof registro?.arquivo_pdf === 'string' && registro.arquivo_pdf
-        ? [registro.arquivo_pdf]
+    const arquivos = Array.isArray(registro?.arquivos)
+      ? registro.arquivos
+      : typeof registro?.arquivos === 'string' && registro.arquivos
+        ? [registro.arquivos]
         : [];
 
-    return arquivos.map((arquivo, indice) => {
+    return arquivos.map((urlArquivo, indice) => {
       return {
-        url: montarLinkArquivo(registro, arquivo),
+        url: montarLinkArquivo(registro, urlArquivo),
         nome: montarNomePdfPorRegistro(registro, indice, arquivos.length)
       };
     });
@@ -451,6 +454,10 @@ function configurarEventosFiltros() {
   }
 }
 
+
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from './firebase-config.js';
+
 async function carregarDetalhesProjeto() {
   const params = new URLSearchParams(window.location.search);
   const codigoProjeto = params.get('projeto') || '';
@@ -466,8 +473,10 @@ async function carregarDetalhesProjeto() {
   setDetalhesStatus('Carregando informações preenchidas...', 'info');
 
   try {
-    const todosRegistros = await pocketbaseClient.collection(pocketbaseConfig.collection).getFullList({
-      sort: '-created'
+    const snapshot = await getDocs(collection(db, 'envios_atestados'));
+    const todosRegistros = [];
+    snapshot.forEach((docSnap) => {
+      todosRegistros.push({ id: docSnap.id, ...docSnap.data() });
     });
 
     const padraoProjeto = new RegExp(`\\b${codigoProjeto}\\b`);
@@ -489,31 +498,12 @@ async function carregarDetalhesProjeto() {
     preencherFiltroTipo(registrosProjeto);
     aplicarFiltros();
   } catch (error) {
-    const detalhe = error?.response?.message || error?.message || 'Falha ao carregar dados do projeto.';
-    setDetalhesStatus(`Erro ao carregar informações: ${detalhe}`, 'error');
+    setDetalhesStatus(`Erro ao carregar informações: ${error?.message || 'Falha ao carregar dados do projeto.'}`, 'error');
   }
 }
 
-(function init() {
-  const ok = iniciarPocketBase();
 
-  if (!ok) {
-    setDetalhesStatus('Configuração inválida do PocketBase.', 'error');
-    return;
-  }
-
-  if (!pocketbaseClient.authStore.isValid) {
-    setDetalhesStatus('Sessão RH não encontrada. Faça login novamente.', 'error');
-    return;
-  }
-
-  if (!usuarioAprovado(pocketbaseClient.authStore.model)) {
-    pocketbaseClient.authStore.clear();
-    setDetalhesStatus('Seu acesso RH está pendente de aprovação do administrador.', 'error');
-    return;
-  }
-
-  ativarDownloadComNome();
-  configurarEventosFiltros();
-  carregarDetalhesProjeto();
-})();
+// Inicialização direta (sem PocketBase)
+ativarDownloadComNome();
+configurarEventosFiltros();
+carregarDetalhesProjeto();

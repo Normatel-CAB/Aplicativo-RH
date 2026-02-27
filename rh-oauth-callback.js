@@ -9,21 +9,8 @@ function setStatus(texto, erro = false) {
   oauthStatus.classList.add(erro ? 'status-message--error' : 'status-message--info');
 }
 
-function inicializarPocketBase() {
-  if (!window.POCKETBASE_CONFIG || !window.PocketBase) {
-    return null;
-  }
 
-  const config = window.POCKETBASE_CONFIG;
-  if (typeof config.baseUrl !== 'string' || !/^https?:\/\//i.test(config.baseUrl)) {
-    return null;
-  }
-
-  return {
-    baseUrl: config.baseUrl.replace(/\/+$/, ''),
-    authCollection: config.authCollection || 'users'
-  };
-}
+import { auth } from './firebase-config.js';
 
 function extrairDetalheErro(error) {
   return error?.response?.message || error?.message || 'Falha ao concluir autenticação OAuth.';

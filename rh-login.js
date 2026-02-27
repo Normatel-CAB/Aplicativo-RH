@@ -15,8 +15,8 @@ function redirecionarParaLocalhostSeNecessario() {
   return true;
 }
 
-let pocketbaseClient;
-let pocketbaseConfig;
+
+import { auth } from './firebase-config.js';
 
 function timeoutPromise(ms = 3000) {
   return new Promise((_, reject) => {

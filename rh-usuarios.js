@@ -1,10 +1,11 @@
+
+import { db, auth } from './firebase-config.js';
+import { collection, getDocs, updateDoc, doc } from 'firebase/firestore';
+
 const usuariosStatus = document.getElementById('usuariosStatus');
 const usuariosPendentes = document.getElementById('usuariosPendentes');
 const voltarPainelBtn = document.getElementById('voltarPainelBtn');
 const sairRhBtn = document.getElementById('sairRhBtn');
-
-let pocketbaseClient;
-let pocketbaseConfig;
 
 function setUsuariosStatus(texto, tipo = 'info') {
   usuariosStatus.textContent = texto;
@@ -94,54 +95,47 @@ function criarCardPendente(usuario) {
   return card;
 }
 
+
+
+
 async function carregarPendentes() {
   setUsuariosStatus('Carregando usuários pendentes...', 'info');
   usuariosPendentes.innerHTML = '';
-
   try {
-    const pendentes = await pocketbaseClient.collection(pocketbaseConfig.authCollection).getFullList({
-      sort: 'created',
-      filter: 'emailVisibility = false'
-    });
-
+    const resp = await fetch('http://localhost:3001/api/usuarios/pendentes');
+    if (!resp.ok) throw new Error('Erro ao buscar usuários');
+    const pendentes = await resp.json();
     if (!pendentes.length) {
       setUsuariosStatus('Nenhum usuário pendente de aprovação.', 'info');
       return;
     }
-
     pendentes.forEach((usuario) => {
       usuariosPendentes.appendChild(criarCardPendente(usuario));
     });
-
     setUsuariosStatus(`Usuários pendentes: ${pendentes.length}`, 'success');
   } catch (error) {
-    const detalhe = error?.response?.message || error?.message || 'Falha ao carregar usuários.';
-    setUsuariosStatus(`Erro: ${detalhe}`, 'error');
+    setUsuariosStatus(`Erro: ${error?.message || 'Falha ao carregar usuários.'}`, 'error');
   }
 }
+
 
 async function aprovarUsuario(userId, botao) {
   botao.disabled = true;
   botao.textContent = 'Aprovando...';
-
   try {
-    await pocketbaseClient.collection(pocketbaseConfig.authCollection).update(userId, {
-      emailVisibility: true
-    });
-
+    const resp = await fetch(`http://localhost:3001/api/usuarios/aprovar/${userId}`, { method: 'POST' });
+    if (!resp.ok) throw new Error('Erro ao aprovar usuário');
     const card = botao.closest('.usuario-pendente-card');
     if (card) {
       card.remove();
     }
-
     const totalRestante = usuariosPendentes.querySelectorAll('.usuario-pendente-card').length;
     setUsuariosStatus(
       totalRestante ? `Usuários pendentes: ${totalRestante}` : 'Nenhum usuário pendente de aprovação.',
       totalRestante ? 'success' : 'info'
     );
   } catch (error) {
-    const detalhe = error?.response?.message || error?.message || 'Falha ao aprovar usuário.';
-    setUsuariosStatus(`Erro ao aprovar: ${detalhe}`, 'error');
+    setUsuariosStatus(`Erro ao aprovar: ${error?.message || 'Falha ao aprovar usuário.'}`, 'error');
     botao.disabled = false;
     botao.textContent = 'Aprovar usuário';
   }
@@ -176,31 +170,6 @@ if (sairRhBtn) {
   });
 }
 
-(function init() {
-  const ok = iniciarPocketBase();
 
-  if (!ok) {
-    setUsuariosStatus('Configuração inválida do PocketBase.', 'error');
-    return;
-  }
-
-  if (!pocketbaseClient.authStore.isValid) {
-    setUsuariosStatus('Sessão RH não encontrada. Faça login novamente.', 'error');
-    return;
-  }
-
-  const usuarioAtual = pocketbaseClient.authStore.model;
-
-  if (!usuarioAprovado(usuarioAtual)) {
-    pocketbaseClient.authStore.clear();
-    setUsuariosStatus('Seu acesso RH está pendente de aprovação.', 'error');
-    return;
-  }
-
-  if (!usuarioAdministrador(usuarioAtual)) {
-    setUsuariosStatus('Acesso permitido apenas para administrador.', 'error');
-    return;
-  }
-
-  carregarPendentes();
-})();
+// Inicialização direta (sem PocketBase)
+carregarPendentes();

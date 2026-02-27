@@ -5,8 +5,11 @@ const sairRhBtn = document.getElementById('sairRhBtn');
 const gerenciarUsuariosBtn = document.getElementById('gerenciarUsuariosBtn');
 const projetoCards = Array.from(document.querySelectorAll('.projeto-card'));
 
-let pocketbaseClient;
-let pocketbaseConfig;
+
+import { db, auth } from './firebase-config.js';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { getStorage, ref, getDownloadURL } from 'firebase/storage';
+
 let registrosCache = [];
 let projetoSelecionado = '';
 
@@ -126,11 +129,10 @@ function montarNomePdfPorRegistro(record, indice = 0, totalArquivos = 1) {
   return `${base}.pdf`;
 }
 
-function montarLinkArquivo(record, nomeArquivo) {
-  const nomeCollection = encodeURIComponent(pocketbaseConfig.collection);
-  const idRecord = encodeURIComponent(record.id);
-  const arquivo = encodeURIComponent(nomeArquivo);
-  return `${pocketbaseConfig.baseUrl}/api/files/${nomeCollection}/${idRecord}/${arquivo}?download=1`;
+
+function montarLinkArquivo(record, urlArquivo) {
+  // urlArquivo já é a URL do Firebase Storage
+  return urlArquivo;
 }
 
 async function baixarArquivoComNome(urlArquivo, nomeDownload) {
@@ -174,17 +176,18 @@ function ativarDownloadComNome() {
 function criarLinhaRegistro(record) {
   const tr = document.createElement('tr');
 
-  const arquivos = Array.isArray(record.arquivo_pdf)
-    ? record.arquivo_pdf
-    : typeof record.arquivo_pdf === 'string' && record.arquivo_pdf
-      ? [record.arquivo_pdf]
+
+  const arquivos = Array.isArray(record.arquivos)
+    ? record.arquivos
+    : typeof record.arquivos === 'string' && record.arquivos
+      ? [record.arquivos]
       : [];
 
   const linksArquivos = arquivos.length
     ? arquivos
-      .map((arquivo, indice) => {
+      .map((urlArquivo, indice) => {
         const nomeExibicao = montarNomePdfPorRegistro(record, indice, arquivos.length);
-        return `<a class="download-pdf-link" href="${montarLinkArquivo(record, arquivo)}" download="${nomeExibicao}" data-download-name="${encodeURIComponent(nomeExibicao)}">${nomeExibicao}</a>`;
+        return `<a class="download-pdf-link" href="${montarLinkArquivo(record, urlArquivo)}" download="${nomeExibicao}" data-download-name="${encodeURIComponent(nomeExibicao)}">${nomeExibicao}</a>`;
       })
       .join('<br>')
     : '-';
@@ -250,9 +253,19 @@ function aplicarFiltroProjeto(codigoProjeto) {
   renderizarTabela(filtrarRegistrosPorProjeto(registrosCache));
 }
 
+
+
 async function carregarAtestados() {
-  setListaStatus('Selecione um projeto para abrir a aba com todas as informações preenchidas.', 'info');
+  setListaStatus('Carregando atestados...', 'info');
   tabelaWrapper.classList.add('hidden');
+  try {
+    const resp = await fetch('http://localhost:3001/api/envios');
+    if (!resp.ok) throw new Error('Erro ao buscar atestados');
+    registrosCache = await resp.json();
+    renderizarTabela(filtrarRegistrosPorProjeto(registrosCache));
+  } catch (error) {
+    setListaStatus(`Erro ao carregar atestados: ${error?.message || 'Falha ao buscar dados.'}`, 'error');
+  }
 }
 
 if (projetoCards.length) {
@@ -284,29 +297,7 @@ if (gerenciarUsuariosBtn) {
   });
 }
 
-(function init() {
-  const ok = iniciarPocketBase();
 
-  if (!ok) {
-    setListaStatus('Configuração inválida do PocketBase.', 'error');
-    return;
-  }
-
-  if (!pocketbaseClient.authStore.isValid) {
-    setListaStatus('Sessão RH não encontrada. Faça login com Microsoft na tela inicial.', 'error');
-    return;
-  }
-
-  if (!usuarioAprovado(pocketbaseClient.authStore.model)) {
-    pocketbaseClient.authStore.clear();
-    setListaStatus('Seu acesso RH está pendente de aprovação do administrador.', 'error');
-    return;
-  }
-
-  if (gerenciarUsuariosBtn && usuarioAdministrador(pocketbaseClient.authStore.model)) {
-    gerenciarUsuariosBtn.classList.remove('hidden');
-  }
-
-  ativarDownloadComNome();
-  carregarAtestados();
-})();
+// Inicialização direta (sem PocketBase)
+ativarDownloadComNome();
+carregarAtestados();

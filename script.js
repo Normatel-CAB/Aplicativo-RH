@@ -14,10 +14,11 @@ const microsoftLoginBtn = document.getElementById('microsoftLoginBtn');
 const rhAuthStatus = document.getElementById('rhAuthStatus');
 const rhLogoutBtn = document.getElementById('rhLogoutBtn');
 
+
+
+
 const MS_POR_DIA = 24 * 60 * 60 * 1000;
 const TIMEOUT_UPLOAD_MS = 30000;
-let pocketbaseConfig;
-let pocketbaseClient;
 const RH_REDIRECT_PENDING_KEY = 'rh_redirect_pending';
 
 function toUTCDate(dateString) {
@@ -349,19 +350,13 @@ function montarFormDataEnvio(arquivosConvertidos) {
   formData.append('dias', String(Number(dias.value)));
 
   const nomePdfPadrao = montarNomePdfPadrao();
-  const nomesArquivosGerados = [];
-
   arquivosConvertidos.forEach((arquivoConvertido, indice) => {
     const nomeArquivo = arquivosConvertidos.length > 1
       ? nomePdfPadrao.replace('.pdf', ` - ANEXO ${indice + 1}.pdf`)
       : nomePdfPadrao;
-    nomesArquivosGerados.push(nomeArquivo);
     const arquivoPdf = blobParaArquivoPdf(arquivoConvertido.blob, nomeArquivo);
-    formData.append(pocketbaseConfig.fileField, arquivoPdf);
+    formData.append('arquivos', arquivoPdf, nomeArquivo);
   });
-
-  formData.append('nome_arquivo_padrao', nomesArquivosGerados.join(' | '));
-
   return formData;
 }
 
@@ -456,6 +451,9 @@ if (rhLogoutBtn) {
   });
 }
 
+
+
+
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   definirEstadoEnvio(true);
@@ -473,13 +471,6 @@ form.addEventListener('submit', async (event) => {
     return;
   }
 
-  const pocketbaseOk = inicializarPocketBase();
-  if (!pocketbaseOk) {
-    definirMensagemStatus('Preencha o arquivo pocketbase-config.js com URL e collection.', 'error');
-    definirEstadoEnvio(false);
-    return;
-  }
-
   const listaArquivos = Array.from(arquivos.files || []);
   if (!listaArquivos.length) {
     definirMensagemStatus('Selecione ao menos um arquivo para converter.', 'error');
@@ -487,7 +478,7 @@ form.addEventListener('submit', async (event) => {
     return;
   }
 
-  definirMensagemStatus('Convertendo e salvando arquivo(s) em PDF no PocketBase...', 'info');
+  definirMensagemStatus('Convertendo e enviando arquivo(s)...', 'info');
 
   try {
     const convertidos = [];
@@ -508,70 +499,21 @@ form.addEventListener('submit', async (event) => {
       return;
     }
 
-    const endpoint = montarEndpointPocketBase();
-    const formDataEnvio = montarFormDataEnvio(convertidos);
-
-    const tokenAuth = pocketbaseClient?.authStore?.token;
-    const headersRequisicao = tokenAuth
-      ? { Authorization: tokenAuth }
-      : undefined;
-
-    const resposta = await withTimeout(
-      fetch(endpoint, {
-        method: 'POST',
-        headers: headersRequisicao,
-        body: formDataEnvio
-      }),
-      TIMEOUT_UPLOAD_MS,
-      'Tempo limite excedido ao salvar os dados no PocketBase.'
-    );
-
-    if (!resposta.ok) {
-      let detalhe = 'Falha ao salvar no PocketBase.';
-      try {
-        const jsonErro = await resposta.json();
-        if (jsonErro?.message) {
-          detalhe = jsonErro.message;
-        }
-      } catch {
-      }
-      throw new Error(detalhe);
+    // Envio para backend Node.js
+    const formData = montarFormDataEnvio(convertidos);
+    const resp = await fetch('http://localhost:3001/api/envios', {
+      method: 'POST',
+      body: formData
+    });
+    if (!resp.ok) {
+      const erro = await resp.text().catch(() => '');
+      throw new Error(erro || 'Erro ao enviar atestado.');
     }
-
-    const registroSalvo = await resposta.json();
-    const valorArquivo = registroSalvo?.[pocketbaseConfig.fileField];
-    const arquivoVinculado = Array.isArray(valorArquivo)
-      ? valorArquivo.length > 0
-      : typeof valorArquivo === 'string'
-        ? valorArquivo.trim().length > 0
-        : Boolean(valorArquivo);
-
-    if (!arquivoVinculado) {
-      console.warn(`Registro criado sem confirmação explícita de arquivo no retorno para o campo '${pocketbaseConfig.fileField}'.`);
-    }
-
     window.location.href = 'sucesso.html';
   } catch (error) {
-    const detalheErro = typeof error?.message === 'string' ? error.message : '';
-    const detalheNormalizado = detalheErro.toLowerCase();
-    const erroPermissao = detalheNormalizado.includes('permission') || detalheNormalizado.includes('unauthorized');
-    const erroColecao = detalheNormalizado.includes('collection') || detalheNormalizado.includes('schema');
-    const erroCors = detalheNormalizado.includes('cors') || detalheNormalizado.includes('preflight');
-
-    if (erroPermissao) {
-      mensagem.textContent = 'Sem permissão no PocketBase. Revise regras da coleção.';
-    } else if (erroCors) {
-      mensagem.textContent = 'Erro de CORS no PocketBase. Verifique se o servidor está ativo e liberado.';
-    } else if (erroColecao) {
-      mensagem.textContent = 'Coleção/campos no PocketBase não encontrados. Confira o setup da coleção.';
-    } else {
-      mensagem.textContent = detalheErro || 'Erro ao salvar no PocketBase. Verifique a configuração e tente novamente.';
-    }
-    definirMensagemStatus(mensagem.textContent, 'error');
+    definirMensagemStatus(error?.message || 'Erro ao enviar atestado.', 'error');
     definirEstadoEnvio(false);
   }
 });
 
 atualizarCampoHoras();
-inicializarPocketBase();
-atualizarEstadoAuthUI();
