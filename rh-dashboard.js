@@ -173,9 +173,26 @@ function ativarDownloadComNome() {
   });
 }
 
+// Sanitizar conteúdo que será exibido
+function sanitizarTexto(texto) {
+  const div = document.createElement('div');
+  div.textContent = String(texto || '');
+  return div.innerHTML;
+}
+
+// Validar URL
+function validarUrl(url) {
+  try {
+    const urlObj = new URL(url);
+    // Permitir apenas http, https
+    return urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 function criarLinhaRegistro(record) {
   const tr = document.createElement('tr');
-
 
   const arquivos = Array.isArray(record.arquivos)
     ? record.arquivos
@@ -183,26 +200,68 @@ function criarLinhaRegistro(record) {
       ? [record.arquivos]
       : [];
 
-  const linksArquivos = arquivos.length
-    ? arquivos
-      .map((urlArquivo, indice) => {
-        const nomeExibicao = montarNomePdfPorRegistro(record, indice, arquivos.length);
-        return `<a class="download-pdf-link" href="${montarLinkArquivo(record, urlArquivo)}" download="${nomeExibicao}" data-download-name="${encodeURIComponent(nomeExibicao)}">${nomeExibicao}</a>`;
-      })
-      .join('<br>')
-    : '-';
+  // Criar células usando textContent para evitar XSS
+  const tdNome = document.createElement('td');
+  tdNome.textContent = record.nome || '-';
+  tr.appendChild(tdNome);
 
-  tr.innerHTML = `
-    <td>${record.nome || '-'}</td>
-    <td>${record.funcao || '-'}</td>
-    <td>${record.projeto || '-'}</td>
-    <td>${record.tipo_atestado || '-'}</td>
-    <td>${formatarData(record.data_inicio)}</td>
-    <td>${formatarData(record.data_fim)}</td>
-    <td>${record.dias || '-'}</td>
-    <td>${formatarDataHora(record.created)}</td>
-    <td>${linksArquivos}</td>
-  `;
+  const tdFuncao = document.createElement('td');
+  tdFuncao.textContent = record.funcao || '-';
+  tr.appendChild(tdFuncao);
+
+  const tdProjeto = document.createElement('td');
+  tdProjeto.textContent = record.projeto || '-';
+  tr.appendChild(tdProjeto);
+
+  const tdTipo = document.createElement('td');
+  tdTipo.textContent = record.tipo_atestado || '-';
+  tr.appendChild(tdTipo);
+
+  const tdInicio = document.createElement('td');
+  tdInicio.textContent = formatarData(record.data_inicio);
+  tr.appendChild(tdInicio);
+
+  const tdFim = document.createElement('td');
+  tdFim.textContent = formatarData(record.data_fim);
+  tr.appendChild(tdFim);
+
+  const tdDias = document.createElement('td');
+  tdDias.textContent = record.dias || '-';
+  tr.appendChild(tdDias);
+
+  const tdCriado = document.createElement('td');
+  tdCriado.textContent = formatarDataHora(record.criado_em);
+  tr.appendChild(tdCriado);
+
+  // Container para arquivos
+  const tdArquivos = document.createElement('td');
+  
+  if (arquivos.length > 0) {
+    arquivos.forEach((urlArquivo, indice) => {
+      // Validar URL
+      if (!validarUrl(urlArquivo)) {
+        console.warn('URL de arquivo inválida:', urlArquivo);
+        return;
+      }
+
+      const nomeExibicao = montarNomePdfPorRegistro(record, indice, arquivos.length);
+      const link = document.createElement('a');
+      link.className = 'download-pdf-link';
+      link.href = urlArquivo; // URL já validada
+      link.download = nomeExibicao;
+      link.setAttribute('data-download-name', encodeURIComponent(nomeExibicao));
+      link.textContent = nomeExibicao;
+      
+      tdArquivos.appendChild(link);
+      
+      if (indice < arquivos.length - 1) {
+        tdArquivos.appendChild(document.createElement('br'));
+      }
+    });
+  } else {
+    tdArquivos.textContent = '-';
+  }
+  tr.appendChild(tdArquivos);
 
   return tr;
 }
