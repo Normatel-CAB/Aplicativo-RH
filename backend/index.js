@@ -68,30 +68,45 @@ let firebaseStorageBucket = '';
 
 function obterServiceAccountFirebase() {
   const valor = String(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '').trim();
-  if (!valor) {
-    return null;
-  }
+  if (valor) {
+    try {
+      if (valor.startsWith('{')) {
+        return JSON.parse(valor);
+      }
 
-  try {
-    if (valor.startsWith('{')) {
-      return JSON.parse(valor);
-    }
+      const caminhoCredencial = path.isAbsolute(valor)
+        ? valor
+        : path.join(__dirname, valor);
 
-    const caminhoCredencial = path.isAbsolute(valor)
-      ? valor
-      : path.join(__dirname, valor);
+      if (!fs.existsSync(caminhoCredencial)) {
+        console.warn(`⚠️ Credencial Firebase não encontrada: ${caminhoCredencial}`);
+        return null;
+      }
 
-    if (!fs.existsSync(caminhoCredencial)) {
-      console.warn(`⚠️ Credencial Firebase não encontrada: ${caminhoCredencial}`);
+      const bruto = fs.readFileSync(caminhoCredencial, 'utf8');
+      return JSON.parse(bruto);
+    } catch (error) {
+      console.warn('⚠️ Falha ao ler FIREBASE_SERVICE_ACCOUNT_JSON:', error.message);
       return null;
     }
+  }
 
-    const bruto = fs.readFileSync(caminhoCredencial, 'utf8');
-    return JSON.parse(bruto);
-  } catch (error) {
-    console.warn('⚠️ Falha ao ler FIREBASE_SERVICE_ACCOUNT_JSON:', error.message);
+  const projectId = String(process.env.FIREBASE_PROJECT_ID || '').trim();
+  const clientEmail = String(process.env.FIREBASE_CLIENT_EMAIL || '').trim();
+  const privateKeyBruta = String(process.env.FIREBASE_PRIVATE_KEY || '').trim();
+
+  if (!projectId || !clientEmail || !privateKeyBruta) {
     return null;
   }
+
+  const privateKey = privateKeyBruta.replace(/\\n/g, '\n');
+
+  return {
+    type: 'service_account',
+    project_id: projectId,
+    private_key: privateKey,
+    client_email: clientEmail
+  };
 }
 
 async function inicializarFirestore() {
@@ -101,7 +116,7 @@ async function inicializarFirestore() {
 
   firestoreInitPromise = (async () => {
     try {
-      const [{ initializeApp, cert, getApps }, { getFirestore }] = await Promise.all([
+      const [{ initializeApp, cert, applicationDefault, getApps }, { getFirestore }] = await Promise.all([
         import('firebase-admin/app'),
         import('firebase-admin/firestore')
       ]);
@@ -109,20 +124,25 @@ async function inicializarFirestore() {
       const { getStorage } = await import('firebase-admin/storage');
 
       const serviceAccount = obterServiceAccountFirebase();
-      if (!serviceAccount) {
-        console.warn('⚠️ FIRESTORE desativado: credencial Firebase não configurada.');
-        return null;
-      }
-
       const bucketConfigurado = String(process.env.FIREBASE_STORAGE_BUCKET || '').trim();
-      const bucketPadrao = serviceAccount?.project_id ? `${serviceAccount.project_id}.appspot.com` : '';
+      const projectIdDetectado = serviceAccount?.project_id
+        || String(process.env.FIREBASE_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || '').trim();
+      const bucketPadrao = projectIdDetectado ? `${projectIdDetectado}.appspot.com` : '';
       firebaseStorageBucket = bucketConfigurado || bucketPadrao;
 
       if (getApps().length === 0) {
+        const credencialFirebase = serviceAccount
+          ? cert(serviceAccount)
+          : applicationDefault();
+
         initializeApp({
-          credential: cert(serviceAccount),
+          credential: credencialFirebase,
           ...(firebaseStorageBucket ? { storageBucket: firebaseStorageBucket } : {})
         });
+      }
+
+      if (!serviceAccount) {
+        console.log('ℹ️ Firebase inicializado com credencial automática do ambiente (Application Default Credentials).');
       }
 
       firestoreDb = getFirestore();
