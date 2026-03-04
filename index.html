@@ -72,15 +72,15 @@
 
         <label>
           Data de início
-          <input type="date" id="dataInicio" name="dataInicio" required />
+          <input type="text" id="dataInicio" name="dataInicio" inputmode="numeric" placeholder="DD/MM/AAAA" pattern="^\d{2}/\d{2}/\d{4}$" maxlength="10" required />
         </label>
 
         <label>
           Data de fim
-          <input type="date" id="dataFim" name="dataFim" required />
+          <input type="text" id="dataFim" name="dataFim" inputmode="numeric" placeholder="DD/MM/AAAA" pattern="^\d{2}/\d{2}/\d{4}$" maxlength="10" readonly required />
         </label>
 
-        <label>
+        <label id="diasWrapper">
           Dias
           <input type="number" id="dias" name="dias" min="1" step="1" required />
         </label>
@@ -94,10 +94,21 @@
 
       <button type="submit">Enviar</button>
       <p id="mensagem" class="status-message status-message--info status-toast" role="status" aria-live="polite"></p>
+      <div id="uploadProgressWrapper" class="hidden upload-progress-wrapper" aria-live="polite">
+        <small id="uploadProgressLabel" class="upload-progress-label">Carregando</small>
+        <progress id="uploadProgressBar" max="100" value="0"></progress>
+        <small id="uploadProgressText" class="upload-progress-text">0%</small>
+      </div>
     </form>
   </main>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <!-- Firebase CDN compat -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+  <script src="firebase-config.js?v=20260226b"></script>
   <script src="script.js?v=20260226b"></script>
 </body>
 </html>

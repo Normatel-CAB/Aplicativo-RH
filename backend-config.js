@@ -1,5 +1,5 @@
 // Configuração do Backend RH
-const BACKEND_URL = 'http://localhost:3001';
+//const BACKEND_URL = '';
 
 // APIs disponíveis
 const API = {

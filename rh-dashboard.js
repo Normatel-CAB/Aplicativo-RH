@@ -190,11 +190,14 @@ function validarUrl(url) {
 function criarLinhaRegistro(record) {
   const tr = document.createElement('tr');
 
-  const arquivos = Array.isArray(record.arquivos)
-    ? record.arquivos
-    : typeof record.arquivos === 'string' && record.arquivos
-      ? [record.arquivos]
-      : [];
+  // Suporte a diferentes formatos de 'arquivos' (array de objetos, array de strings, string)
+  let arquivos = [];
+  if (Array.isArray(record.arquivos)) {
+    // Pode ser array de objetos {url, nome, tipo} ou array de strings
+    arquivos = record.arquivos.map(a => (typeof a === 'string' ? { url: a } : a));
+  } else if (typeof record.arquivos === 'string' && record.arquivos) {
+    arquivos = [{ url: record.arquivos }];
+  }
 
   // Criar células usando textContent para evitar XSS
   const tdNome = document.createElement('td');
@@ -233,23 +236,20 @@ function criarLinhaRegistro(record) {
   const tdArquivos = document.createElement('td');
   
   if (arquivos.length > 0) {
-    arquivos.forEach((urlArquivo, indice) => {
-      // Validar URL
+    arquivos.forEach((arquivo, indice) => {
+      const urlArquivo = arquivo.url || arquivo;
       if (!validarUrl(urlArquivo)) {
         console.warn('URL de arquivo inválida:', urlArquivo);
         return;
       }
-
       const nomeExibicao = montarNomePdfPorRegistro(record, indice, arquivos.length);
       const link = document.createElement('a');
       link.className = 'download-pdf-link';
-      link.href = urlArquivo; // URL já validada
+      link.href = urlArquivo;
       link.download = nomeExibicao;
       link.setAttribute('data-download-name', encodeURIComponent(nomeExibicao));
       link.textContent = nomeExibicao;
-      
       tdArquivos.appendChild(link);
-      
       if (indice < arquivos.length - 1) {
         tdArquivos.appendChild(document.createElement('br'));
       }
@@ -312,13 +312,15 @@ window.aplicarFiltroProjeto = aplicarFiltroProjeto;
 
 
 
+
+
 async function carregarAtestados() {
   setListaStatus('Carregando atestados...', 'info');
   tabelaWrapper.classList.add('hidden');
   try {
-    const resp = await fetch('http://localhost:3001/api/envios');
-    if (!resp.ok) throw new Error('Erro ao buscar atestados');
-    registrosCache = await resp.json();
+    // Busca todos os atestados do Firestore
+    const snapshot = await window.firebase.firestore().collection('envios_atestados').get();
+    registrosCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     renderizarTabela(filtrarRegistrosPorProjeto(registrosCache));
   } catch (error) {
     setListaStatus(`Erro ao carregar atestados: ${error?.message || 'Falha ao buscar dados.'}`, 'error');

@@ -1,4 +1,4 @@
-const BACKEND_URL = 'http://localhost:3001';
+//const BACKEND_URL = '';
 
 let usuarioLogado = null;
 let adminMensagemTimer = null;
@@ -56,50 +56,36 @@ function verificarAutenticacao() {
 async function carregarUsuariosPendentes() {
   const carregando = document.getElementById('carregando');
   carregando.classList.remove('hidden');
-  
   try {
-    const resp = await fetch(`${BACKEND_URL}/api/usuarios/pendentes`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${obterTokenArmazenado()}`
-      }
-    });
-
-    if (!resp.ok) {
-      throw new Error(`Erro ${resp.status}: ${resp.statusText}`);
-    }
-
-    const usuarios = await resp.json();
+    // Busca usuários pendentes no Firestore
+    const snap = await window.firebase.firestore().collection('usuarios_rh').where('status', '==', 'pendente').get();
     carregando.classList.add('hidden');
-    
-    console.log('✅ Usuários pendentes carregados:', usuarios);
-    
     const totalPendentes = document.getElementById('totalPendentes');
-    totalPendentes.textContent = usuarios.length;
-
+    totalPendentes.textContent = snap.size;
     const listaPendentes = document.getElementById('listaPendentes');
-    
-    if (usuarios.length === 0) {
+    if (snap.empty) {
       listaPendentes.innerHTML = '<div class="status-vazio">✅ Nenhum usuário pendente de aprovação</div>';
       return;
     }
-
-    listaPendentes.innerHTML = usuarios.map(usuario => `
-      <div class="usuario-item">
+    listaPendentes.innerHTML = '';
+    snap.forEach(doc => {
+      const usuario = doc.data();
+      const div = document.createElement('div');
+      div.className = 'usuario-item';
+      div.innerHTML = `
         <div class="usuario-info">
           <div class="usuario-nome">${usuario.nome}</div>
           <div class="usuario-email">${usuario.email}</div>
           <div class="usuario-data">Cadastrado em: ${new Date(usuario.criado_em).toLocaleDateString('pt-BR')} ${new Date(usuario.criado_em).toLocaleTimeString('pt-BR')}</div>
         </div>
         <div class="usuario-acoes">
-          <button class="btn-aprovar" onclick="aprovarUsuario('${usuario.id}', '${usuario.nome}')">Aprovar</button>
-          <button class="btn-rejeitar" onclick="rejeitarUsuario('${usuario.id}', '${usuario.nome}')">Rejeitar</button>
+          <button class="btn-aprovar" onclick="aprovarUsuario('${doc.id}', '${usuario.nome}')">Aprovar</button>
+          <button class="btn-rejeitar" onclick="rejeitarUsuario('${doc.id}', '${usuario.nome}')">Rejeitar</button>
         </div>
-      </div>
-    `).join('');
+      `;
+      listaPendentes.appendChild(div);
+    });
   } catch (err) {
-    console.error('Erro ao carregar usuários:', err);
     carregando.classList.add('hidden');
     definirMensagem(`❌ Erro ao carregar usuários: ${err.message}`, 'error');
   }
@@ -109,27 +95,10 @@ async function aprovarUsuario(usuarioId, usuarioNome) {
   if (!confirm(`Tem certeza que deseja aprovar ${usuarioNome}?`)) {
     return;
   }
-
   definirMensagem('⏳ Aprovando usuário...', 'loading');
-
   try {
-    const resp = await fetch(`${BACKEND_URL}/api/usuarios/aprovar/${usuarioId}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${obterTokenArmazenado()}`
-      }
-    });
-
-    if (!resp.ok) {
-      throw new Error(`Erro ${resp.status}: ${resp.statusText}`);
-    }
-
-    const dados = await resp.json();
-    console.log('✅ Usuário aprovado:', dados);
-    
+    await window.firebase.firestore().collection('usuarios_rh').doc(usuarioId).update({ status: 'aprovado' });
     definirMensagem(`✅ ${usuarioNome} foi aprovado com sucesso!`, 'success');
-    
     setTimeout(() => {
       carregarUsuariosPendentes();
     }, 1500);
@@ -145,25 +114,10 @@ async function rejeitarUsuario(usuarioId, usuarioNome) {
   }
 
   definirMensagem('⏳ Rejeitando usuário...', 'loading');
-
   try {
-    const resp = await fetch(`${BACKEND_URL}/api/usuarios/rejeitar/${usuarioId}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${obterTokenArmazenado()}`
-      }
-    });
-
-    if (!resp.ok) {
-      throw new Error(`Erro ${resp.status}: ${resp.statusText}`);
-    }
-
-    const dados = await resp.json();
-    console.log('✅ Usuário rejeitado:', dados);
-    
+    // Atualiza o status do usuário para "rejeitado" no Firestore
+    await window.firebase.firestore().collection('usuarios_rh').doc(usuarioId).update({ status: 'rejeitado' });
     definirMensagem(`✅ ${usuarioNome} foi rejeitado e removido do sistema.`, 'success');
-    
     setTimeout(() => {
       carregarUsuariosPendentes();
     }, 1500);

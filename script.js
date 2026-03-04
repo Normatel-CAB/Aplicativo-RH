@@ -2,11 +2,15 @@ const form = document.getElementById('rh-form');
 const tipoAtestado = document.getElementById('tipoAtestado');
 const horasWrapper = document.getElementById('horasComparecimentoWrapper');
 const horasInput = document.getElementById('horasComparecimento');
+const diasWrapper = document.getElementById('diasWrapper');
 const dataInicio = document.getElementById('dataInicio');
 const dataFim = document.getElementById('dataFim');
 const dias = document.getElementById('dias');
 const arquivos = document.getElementById('arquivos');
 const mensagem = document.getElementById('mensagem');
+const uploadProgressWrapper = document.getElementById('uploadProgressWrapper');
+const uploadProgressBar = document.getElementById('uploadProgressBar');
+const uploadProgressText = document.getElementById('uploadProgressText');
 const botaoEnviar = form.querySelector('button[type="submit"]');
 const rhAccessBtn = document.getElementById('rhAccessBtn');
 let mensagemStatusTimer = null;
@@ -15,44 +19,150 @@ let mensagemStatusTimer = null;
 
 
 const MS_POR_DIA = 24 * 60 * 60 * 1000;
-const BACKEND_URL = 'http://localhost:3001';
+const MAX_LADO_IMAGEM_PDF = 1600;
+const QUALIDADE_JPEG_PDF = 0.82;
 
-function registrarEventoBackend(acao, detalhes = {}) {
-  const payload = {
-    acao,
-    pagina: 'index.html',
-    email: localStorage.getItem('rh_user_email') || '',
-    usuarioId: localStorage.getItem('rh_user_id') || '',
-    detalhes
-  };
-
-  fetch(`${BACKEND_URL}/api/eventos`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-    keepalive: true
-  }).catch(() => {});
+// Função para registrar eventos no Firestore (opcional)
+async function registrarEventoBackend(acao, detalhes = {}) {
+  try {
+    await window.db.collection('eventos_frontend').add({
+      acao,
+      pagina: 'index.html',
+      email: localStorage.getItem('rh_user_email') || '',
+      usuarioId: localStorage.getItem('rh_user_id') || '',
+      detalhes,
+      criado_em: new Date().toISOString()
+    });
+  } catch {}
 }
 
 function toUTCDate(dateString) {
-  const [ano, mes, dia] = dateString.split('-').map(Number);
-  return new Date(Date.UTC(ano, mes - 1, dia));
+  const valor = String(dateString || '').trim();
+  if (!valor) return new Date(NaN);
+
+  let ano;
+  let mes;
+  let dia;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
+    [ano, mes, dia] = valor.split('-').map(Number);
+  } else if (/^\d{2}-\d{2}-\d{4}$/.test(valor)) {
+    [dia, mes, ano] = valor.split('-').map(Number);
+  } else {
+    return new Date(NaN);
+  }
+
+  const data = new Date(Date.UTC(ano, mes - 1, dia));
+  if (
+    data.getUTCFullYear() !== ano ||
+    data.getUTCMonth() !== mes - 1 ||
+    data.getUTCDate() !== dia
+  ) {
+    return new Date(NaN);
+  }
+
+  return data;
 }
 
 function toInputDate(dateObj) {
   const ano = dateObj.getUTCFullYear();
   const mes = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
   const dia = String(dateObj.getUTCDate()).padStart(2, '0');
+  return `${dia}/${mes}/${ano}`;
+}
+
+function obterDataHojeLocalISO() {
+  const agora = new Date();
+  const ano = agora.getFullYear();
+  const mes = String(agora.getMonth() + 1).padStart(2, '0');
+  const dia = String(agora.getDate()).padStart(2, '0');
   return `${ano}-${mes}-${dia}`;
 }
 
+function isoParaDisplay(isoDate) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(isoDate || ''))) {
+    return '';
+  }
+  const [ano, mes, dia] = String(isoDate).split('-');
+  return `${dia}/${mes}/${ano}`;
+}
+
+function displayParaISO(displayDate) {
+  const valor = String(displayDate || '').trim().replace(/\//g, '-');
+  if (!/^\d{2}-\d{2}-\d{4}$/.test(valor)) {
+    return '';
+  }
+  const [dia, mes, ano] = valor.split('-').map(Number);
+  const data = new Date(Date.UTC(ano, mes - 1, dia));
+  if (
+    data.getUTCFullYear() !== ano ||
+    data.getUTCMonth() !== mes - 1 ||
+    data.getUTCDate() !== dia
+  ) {
+    return '';
+  }
+  return `${String(ano).padStart(4, '0')}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+}
+
+function normalizarDigitacaoData(input) {
+  if (!input) return;
+  const apenasDigitos = String(input.value || '').replace(/\D/g, '').slice(0, 8);
+  let formatado = apenasDigitos;
+  if (apenasDigitos.length > 2) {
+    formatado = `${apenasDigitos.slice(0, 2)}/${apenasDigitos.slice(2)}`;
+  }
+  if (apenasDigitos.length > 4) {
+    formatado = `${apenasDigitos.slice(0, 2)}/${apenasDigitos.slice(2, 4)}/${apenasDigitos.slice(4)}`;
+  }
+  input.value = formatado;
+}
+
+function validarDatasNaoFuturas() {
+  const hojeISO = obterDataHojeLocalISO();
+  const hojeDisplay = isoParaDisplay(hojeISO);
+  const isoInicio = displayParaISO(dataInicio.value);
+  const isoFim = displayParaISO(dataFim.value);
+
+  const hoje = toUTCDate(hojeISO);
+
+  if (!dataInicio.value) {
+    dataInicio.setCustomValidity('');
+  } else if (!isoInicio) {
+    dataInicio.setCustomValidity('Use o formato DD-MM-AAAA com data válida.');
+  } else {
+    const inicio = toUTCDate(isoInicio);
+    if (inicio > hoje) {
+      dataInicio.setCustomValidity(`A data de início não pode ser futura. Máximo: ${hojeDisplay}.`);
+    } else {
+      dataInicio.setCustomValidity('');
+    }
+  }
+
+  if (!dataFim.value) {
+    dataFim.setCustomValidity('');
+  } else if (!isoFim) {
+    dataFim.setCustomValidity('Use o formato DD-MM-AAAA com data válida.');
+  } else {
+    const fim = toUTCDate(isoFim);
+    if (fim > hoje) {
+      dataFim.setCustomValidity(`A data de fim não pode ser futura. Máximo: ${hojeDisplay}.`);
+    } else if (isoInicio && fim < toUTCDate(isoInicio)) {
+      dataFim.setCustomValidity('A data de fim deve ser igual ou maior que a data de início.');
+    } else {
+      dataFim.setCustomValidity('');
+    }
+  }
+}
+
 function calcularDiasPorIntervalo() {
-  if (!dataInicio.value || !dataFim.value) {
+  const isoInicio = displayParaISO(dataInicio.value);
+  const isoFim = displayParaISO(dataFim.value);
+  if (!isoInicio || !isoFim) {
     return;
   }
 
-  const inicio = toUTCDate(dataInicio.value);
-  const fim = toUTCDate(dataFim.value);
+  const inicio = toUTCDate(isoInicio);
+  const fim = toUTCDate(isoFim);
   const diferenca = Math.floor((fim - inicio) / MS_POR_DIA) + 1;
 
   if (diferenca >= 1) {
@@ -64,7 +174,18 @@ function calcularDiasPorIntervalo() {
 }
 
 function calcularFimPorDias() {
-  if (!dataInicio.value || !dias.value) {
+  if (tipoAtestado.value === 'Declaração') {
+    const isoInicioDeclaracao = displayParaISO(dataInicio.value);
+    if (isoInicioDeclaracao) {
+      dataFim.value = toInputDate(toUTCDate(isoInicioDeclaracao));
+      dias.value = '1';
+      dataFim.setCustomValidity('');
+    }
+    return;
+  }
+
+  const isoInicio = displayParaISO(dataInicio.value);
+  if (!isoInicio || !dias.value) {
     return;
   }
 
@@ -73,7 +194,7 @@ function calcularFimPorDias() {
     return;
   }
 
-  const inicio = toUTCDate(dataInicio.value);
+  const inicio = toUTCDate(isoInicio);
   const fim = new Date(inicio.getTime() + (totalDias - 1) * MS_POR_DIA);
   dataFim.value = toInputDate(fim);
   dataFim.setCustomValidity('');
@@ -83,9 +204,16 @@ function atualizarCampoHoras() {
   const isDeclaracao = tipoAtestado.value === 'Declaração';
   horasWrapper.classList.toggle('hidden', !isDeclaracao);
   horasInput.required = isDeclaracao;
+  if (diasWrapper) {
+    diasWrapper.classList.toggle('hidden', isDeclaracao);
+  }
+  dias.required = !isDeclaracao;
 
   if (!isDeclaracao) {
     horasInput.value = '';
+  } else {
+    dias.value = '1';
+    calcularFimPorDias();
   }
 }
 
@@ -96,12 +224,12 @@ function nomePdf(nomeOriginal) {
 
 function formatarDataCurtaParaNome(dataISO) {
   if (!dataISO || typeof dataISO !== 'string') {
-    return '00.00.00';
+    return '00.00.0000';
   }
 
-  const [ano, mes, dia] = dataISO.split('-');
-  const anoCurto = (ano || '').slice(-2);
-  return `${dia || '00'}.${mes || '00'}.${anoCurto || '00'}`;
+  const iso = /^\d{2}[-/]\d{2}[-/]\d{4}$/.test(dataISO) ? displayParaISO(dataISO) : dataISO;
+  const [ano, mes, dia] = String(iso || '').split('-');
+  return `${dia || '00'}.${mes || '00'}.${ano || '0000'}`;
 }
 
 function normalizarNomePessoaParaArquivo(nomePessoa) {
@@ -134,6 +262,47 @@ function montarNomePdfPadrao() {
 function definirEstadoEnvio(carregando, textoBotao = 'Enviar') {
   botaoEnviar.disabled = carregando;
   botaoEnviar.textContent = carregando ? 'Enviando...' : textoBotao;
+}
+
+function atualizarProgressoUpload(percentual, texto = '') {
+  if (!uploadProgressWrapper || !uploadProgressBar || !uploadProgressText) {
+    return;
+  }
+
+  const valor = Math.max(0, Math.min(100, Math.round(percentual)));
+  uploadProgressWrapper.classList.remove('hidden');
+  uploadProgressBar.value = valor;
+  uploadProgressText.textContent = texto || `${valor}%`;
+}
+
+function ocultarProgressoUpload() {
+  if (!uploadProgressWrapper || !uploadProgressBar || !uploadProgressText) {
+    return;
+  }
+
+  uploadProgressBar.value = 0;
+  uploadProgressText.textContent = '0%';
+  uploadProgressWrapper.classList.add('hidden');
+}
+
+function uploadComProgresso(storageRef, blob, bytesTransferidosPorArquivo, indiceArquivo, totalBytes) {
+  return new Promise((resolve, reject) => {
+    const uploadTask = storageRef.put(blob, { contentType: 'application/pdf' });
+
+    uploadTask.on('state_changed', (snapshot) => {
+      bytesTransferidosPorArquivo[indiceArquivo] = snapshot.bytesTransferred;
+      const totalTransferido = bytesTransferidosPorArquivo.reduce((acc, atual) => acc + atual, 0);
+      const percentual = totalBytes > 0 ? (totalTransferido / totalBytes) * 100 : 0;
+      atualizarProgressoUpload(percentual, `${Math.round(percentual)}%`);
+    }, reject, async () => {
+      try {
+        const url = await uploadTask.snapshot.ref.getDownloadURL();
+        resolve(url);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
 }
 
 function definirMensagemStatus(texto, tipo = 'info') {
@@ -196,19 +365,41 @@ async function converterImagemParaPdf(arquivo) {
     img.src = dataUrl;
   });
 
-  const orientacao = imagem.width > imagem.height ? 'l' : 'p';
+  const escalaReducao = Math.min(
+    1,
+    MAX_LADO_IMAGEM_PDF / Math.max(imagem.width, imagem.height)
+  );
+  const larguraProcessada = Math.max(1, Math.round(imagem.width * escalaReducao));
+  const alturaProcessada = Math.max(1, Math.round(imagem.height * escalaReducao));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = larguraProcessada;
+  canvas.height = alturaProcessada;
+  const contexto = canvas.getContext('2d');
+  if (!contexto) {
+    throw new Error('Falha ao processar imagem para PDF.');
+  }
+
+  contexto.drawImage(imagem, 0, 0, larguraProcessada, alturaProcessada);
+
+  const manterPng = arquivo.type.includes('png');
+  const formatoImagem = manterPng ? 'PNG' : 'JPEG';
+  const dataUrlProcessada = manterPng
+    ? canvas.toDataURL('image/png')
+    : canvas.toDataURL('image/jpeg', QUALIDADE_JPEG_PDF);
+
+  const orientacao = larguraProcessada > alturaProcessada ? 'l' : 'p';
   const pdf = new jsPDF({ orientation: orientacao, unit: 'pt', format: 'a4' });
   const larguraPagina = pdf.internal.pageSize.getWidth();
   const alturaPagina = pdf.internal.pageSize.getHeight();
 
-  const escala = Math.min(larguraPagina / imagem.width, alturaPagina / imagem.height);
-  const larguraFinal = imagem.width * escala;
-  const alturaFinal = imagem.height * escala;
+  const escala = Math.min(larguraPagina / larguraProcessada, alturaPagina / alturaProcessada);
+  const larguraFinal = larguraProcessada * escala;
+  const alturaFinal = alturaProcessada * escala;
   const x = (larguraPagina - larguraFinal) / 2;
   const y = (alturaPagina - alturaFinal) / 2;
 
-  const formatoImagem = arquivo.type.includes('png') ? 'PNG' : 'JPEG';
-  pdf.addImage(dataUrl, formatoImagem, x, y, larguraFinal, alturaFinal);
+  pdf.addImage(dataUrlProcessada, formatoImagem, x, y, larguraFinal, alturaFinal);
   return pdf.output('blob');
 }
 
@@ -274,12 +465,19 @@ function montarFormDataEnvio(arquivosConvertidos) {
 }
 
 tipoAtestado.addEventListener('change', atualizarCampoHoras);
+dataInicio.addEventListener('input', () => normalizarDigitacaoData(dataInicio));
 dataInicio.addEventListener('change', () => {
-  calcularDiasPorIntervalo();
+  validarDatasNaoFuturas();
   calcularFimPorDias();
+  if (tipoAtestado.value !== 'Declaração') {
+    calcularDiasPorIntervalo();
+  }
+  validarDatasNaoFuturas();
 });
-dataFim.addEventListener('change', calcularDiasPorIntervalo);
-dias.addEventListener('input', calcularFimPorDias);
+dias.addEventListener('input', () => {
+  calcularFimPorDias();
+  validarDatasNaoFuturas();
+});
 
 if (rhAccessBtn) {
   rhAccessBtn.addEventListener('click', () => {
@@ -289,121 +487,143 @@ if (rhAccessBtn) {
   });
 }
 
+
+
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   definirEstadoEnvio(true);
+  if (mensagem) {
+    mensagem.textContent = '';
+  }
+
+  calcularFimPorDias();
+  validarDatasNaoFuturas();
 
   if (!form.checkValidity()) {
     form.reportValidity();
-    definirMensagemStatus('Revise os campos obrigatórios antes de enviar.', 'error');
     definirEstadoEnvio(false);
     return;
   }
 
   if (!window.jspdf) {
-    definirMensagemStatus('Não foi possível carregar a biblioteca de PDF.', 'error');
     definirEstadoEnvio(false);
     return;
   }
 
   const listaArquivos = Array.from(arquivos.files || []);
   if (!listaArquivos.length) {
-    definirMensagemStatus('Selecione ao menos um arquivo para converter.', 'error');
     definirEstadoEnvio(false);
     return;
   }
 
-  definirMensagemStatus('Convertendo e enviando arquivo(s)...', 'info');
+  atualizarProgressoUpload(0, '0%');
 
   try {
-    const convertidos = [];
-    const naoSuportados = [];
+    const resultadosConversao = await Promise.all(
+      listaArquivos.map(async (arquivo) => ({
+        arquivo,
+        convertido: await converterArquivoParaPdf(arquivo)
+      }))
+    );
 
-    for (const arquivo of listaArquivos) {
-      const convertido = await converterArquivoParaPdf(arquivo);
-      if (convertido) {
-        convertidos.push(convertido);
-      } else {
-        naoSuportados.push(arquivo.name);
-      }
-    }
+    const convertidos = resultadosConversao
+      .filter((item) => !!item.convertido)
+      .map((item) => item.convertido);
+
+    const naoSuportados = resultadosConversao
+      .filter((item) => !item.convertido)
+      .map((item) => item.arquivo.name);
 
     if (naoSuportados.length) {
-      definirMensagemStatus(`Formato não suportado para conversão automática: ${naoSuportados.join(', ')}.`, 'error');
+      ocultarProgressoUpload();
       definirEstadoEnvio(false);
       return;
     }
 
-    // Envio para backend Node.js
     // Validar dias - se inválido, recalcular a partir das datas
-    let diasEnvio = Number(dias.value) || 0;
-    
+    const dataInicioISO = displayParaISO(dataInicio.value);
+    let dataFimISO = displayParaISO(dataFim.value);
+    const isDeclaracao = tipoAtestado.value === 'Declaração';
+    if (isDeclaracao) {
+      dataFimISO = dataInicioISO;
+      dataFim.value = dataInicio.value;
+      dias.value = '1';
+    }
+
+    let diasEnvio = isDeclaracao ? 1 : (Number(dias.value) || 0);
     if (!Number.isInteger(diasEnvio) || diasEnvio < 1 || diasEnvio > 365) {
-      // Recalcular dias a partir das datas
-      if (dataInicio.value && dataFim.value) {
-        const inicio = toUTCDate(dataInicio.value);
-        const fim = toUTCDate(dataFim.value);
+      if (dataInicioISO && dataFimISO) {
+        const inicio = toUTCDate(dataInicioISO);
+        const fim = toUTCDate(dataFimISO);
         diasEnvio = Math.floor((fim - inicio) / MS_POR_DIA) + 1;
       } else {
         throw new Error('Preencha as datas de início e fim para calcular os dias.');
       }
     }
-    
-    // Garantir que dias está entre 1 e 365
     if (diasEnvio < 1 || diasEnvio > 365) {
       throw new Error('Os dias devem ser entre 1 e 365. Verifique as datas de início e fim.');
     }
-    
-    const nomePdfPadrao = montarNomePdfPadrao();
-    const arquivosPayload = [];
 
-    for (let i = 0; i < convertidos.length; i += 1) {
-      const convertido = convertidos[i];
-      const nomeArquivo = convertidos.length > 1
-        ? nomePdfPadrao.replace('.pdf', ` - ANEXO ${i + 1}.pdf`)
-        : nomePdfPadrao;
-
-      const base64 = await blobParaBase64(convertido.blob);
-      arquivosPayload.push({
-        nome: nomeArquivo,
-        tipo: 'application/pdf',
-        conteudoBase64: base64
-      });
+    // Verifica se o usuário está autenticado antes de qualquer operação sensível
+    const user = window.auth && window.auth.currentUser;
+    if (!user) {
+      ocultarProgressoUpload();
+      definirEstadoEnvio(false);
+      return;
     }
 
+    atualizarProgressoUpload(5, '5%');
+
+    // Upload dos arquivos para o Storage (paralelo)
+    const nomePdfPadrao = montarNomePdfPadrao();
+    const timestampBase = Date.now();
+    const totalBytes = convertidos.reduce((total, convertido) => total + (Number(convertido?.blob?.size) || 0), 0);
+    const bytesTransferidosPorArquivo = new Array(convertidos.length).fill(0);
+    const arquivosPayload = await Promise.all(
+      convertidos.map(async (convertido, indice) => {
+        const nomeArquivo = convertidos.length > 1
+          ? nomePdfPadrao.replace('.pdf', ` - ANEXO ${indice + 1}.pdf`)
+          : nomePdfPadrao;
+
+        const storageRef = window.storage.ref(`atestados/${timestampBase}_${indice + 1}_${nomeArquivo}`);
+        const url = await uploadComProgresso(storageRef, convertido.blob, bytesTransferidosPorArquivo, indice, totalBytes);
+
+        return {
+          nome: nomeArquivo,
+          tipo: 'application/pdf',
+          url
+        };
+      })
+    );
+
+    // Salvar dados no Firestore
     const dadosEnvio = {
       nome: document.getElementById('nome').value.trim(),
       funcao: document.getElementById('funcao').value.trim(),
       projeto: document.getElementById('projeto').value,
       tipo_atestado: tipoAtestado.value,
       horas_comparecimento: horasInput.value ? String(Number(horasInput.value)) : '',
-      data_inicio: dataInicio.value,
-      data_fim: dataFim.value,
+      data_inicio: dataInicioISO,
+      data_fim: dataFimISO,
       dias: diasEnvio,
-      arquivos: arquivosPayload
+      arquivos: arquivosPayload,
+      criado_em: new Date().toISOString()
     };
-    
-    const resp = await fetch(`${BACKEND_URL}/api/envios`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(dadosEnvio)
-    });
-    if (!resp.ok) {
-      const erro = await resp.text().catch(() => '');
-      throw new Error(erro || 'Erro ao enviar atestado.');
-    }
-    registrarEventoBackend('envio_realizado', {
+    await window.db.collection('envios_atestados').add(dadosEnvio);
+    atualizarProgressoUpload(100, '100%');
+    await registrarEventoBackend('envio_realizado', {
       projeto: dadosEnvio.projeto,
       tipo_atestado: dadosEnvio.tipo_atestado
     });
     window.location.href = 'sucesso.html';
   } catch (error) {
-    definirMensagemStatus(error?.message || 'Erro ao enviar atestado.', 'error');
+    console.error('Erro ao enviar atestado:', error);
+    ocultarProgressoUpload();
     definirEstadoEnvio(false);
   }
 });
 
 atualizarCampoHoras();
+validarDatasNaoFuturas();
 registrarEventoBackend('acesso_pagina');
+ocultarProgressoUpload();

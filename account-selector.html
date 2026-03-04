@@ -57,6 +57,8 @@
     <!-- Firebase Auth (compat) para cadastro direto no Authentication -->
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+    <script src="firebase-config.js"></script>
     
     <!-- Configuração do MSAL -->
     <script src="msal-config.js"></script>
@@ -69,32 +71,8 @@
             window.location.replace(urlLocalhost.toString());
         }
 
-        const LOCAL_BACKEND_URL = 'http://localhost:3001';
-        const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-
-        function normalizarBackendUrl(url = '') {
-            return String(url || '').trim().replace(/\/+$/, '');
-        }
-
-        function resolverBackendUrl() {
-            const params = new URLSearchParams(window.location.search);
-            const backendParam = normalizarBackendUrl(params.get('backend'));
-
-            if (backendParam) {
-                localStorage.setItem('rh_backend_url', backendParam);
-            }
-
-            const backendPersistido = normalizarBackendUrl(localStorage.getItem('rh_backend_url'));
-            const backendConfigurado = backendParam || backendPersistido;
-
-            if (backendConfigurado) {
-                return backendConfigurado;
-            }
-
-            return isLocalHost ? LOCAL_BACKEND_URL : '';
-        }
-
-        const BACKEND_URL = resolverBackendUrl();
+        // BANCO 100% ONLINE: Não há mais backend local
+        // Todas as operações são feitas via Firebase Auth e Firestore
         const REDIRECT_AFTER_LOGIN = localStorage.getItem('rh_redirect_after_login') || 'rh-atestados.html';
         const FIREBASE_PROJECT_HOST = localStorage.getItem('rh_firebase_project_host') || 'normatel-rh.firebaseapp.com';
         const FIREBASE_API_KEY = localStorage.getItem('rh_firebase_api_key') || 'AIzaSyCWLQteC_iYmUi_0DVEsUb5kCdki5e13bs';
@@ -144,25 +122,19 @@
             el.className = 'status-message status-toast';
         }
 
-        function registrarEventoBackend(acao, detalhes = {}) {
-            if (!BACKEND_URL) {
-                return;
+        async function registrarEventoBackend(acao, detalhes = {}) {
+            if (typeof firebase !== 'undefined') {
+                try {
+                    await firebase.firestore().collection('eventos_frontend').add({
+                        acao,
+                        pagina: 'account-selector.html',
+                        email: localStorage.getItem('rh_user_email') || detalhes.email || '',
+                        usuarioId: localStorage.getItem('rh_user_id') || detalhes.usuarioId || '',
+                        detalhes,
+                        criado_em: new Date().toISOString()
+                    });
+                } catch {}
             }
-
-            const payload = {
-                acao,
-                pagina: 'account-selector.html',
-                email: localStorage.getItem('rh_user_email') || detalhes.email || '',
-                usuarioId: localStorage.getItem('rh_user_id') || detalhes.usuarioId || '',
-                detalhes
-            };
-
-            fetch(`${BACKEND_URL}/api/eventos`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-                keepalive: true
-            }).catch(() => {});
         }
 
         async function verificarSessaoExistente() {
@@ -186,72 +158,35 @@
             return false;
         }
 
-        async function requisicaoBackendJson(url, options = {}, tentativas = 2) {
-            if (!BACKEND_URL) {
-                throw new Error('BACKEND_URL_NOT_CONFIGURED');
-            }
 
-            let ultimaResposta = null;
+        // Não existe mais requisicaoBackendJson, tudo é Firebase
 
-            for (let i = 0; i <= tentativas; i += 1) {
-                let resposta;
-                try {
-                    resposta = await fetch(url, options);
-                } catch (erroRede) {
-                    if (i === tentativas) {
-                        throw new Error('BACKEND_UNREACHABLE');
-                    }
-                    await new Promise((resolve) => setTimeout(resolve, 250 * (i + 1)));
-                    continue;
-                }
-
-                ultimaResposta = resposta;
-
-                if (resposta.ok) {
-                    return await resposta.json();
-                }
-
-                const statusRepetivel = resposta.status === 429 || resposta.status >= 500;
-                if (!statusRepetivel || i === tentativas) {
-                    let detalhe = '';
-                    try {
-                        const body = await resposta.json();
-                        detalhe = body?.error || body?.mensagem || '';
-                    } catch {
-                        detalhe = await resposta.text().catch(() => '');
-                    }
-                    throw new Error(`${resposta.status}${detalhe ? ` - ${detalhe}` : ''}`);
-                }
-
-                await new Promise((resolve) => setTimeout(resolve, 250 * (i + 1)));
-            }
-
-            throw new Error(`${ultimaResposta?.status || 'BACKEND_ERROR'}`);
-        }
 
         async function verificarUsuarioCadastrado(email) {
-            try {
-                return await requisicaoBackendJson(`${BACKEND_URL}/api/usuarios/existe?email=${encodeURIComponent(email)}`);
-            } catch (erro) {
-                throw new Error(`Não foi possível validar cadastro no backend (${erro.message}).`);
-            }
+            // Busca usuário no Firestore
+            if (typeof firebase === 'undefined') throw new Error('Firebase não carregado');
+            const snap = await firebase.firestore().collection('usuarios_rh').where('email', '==', email).get();
+            if (snap.empty) return { existe: false, aprovado: false };
+            const doc = snap.docs[0].data();
+            return { existe: true, aprovado: doc.status === 'aprovado' };
         }
 
+
         async function cadastrarUsuario(email, nome) {
-            try {
-                return await requisicaoBackendJson(`${BACKEND_URL}/api/usuarios`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        email,
-                        nome
-                    })
-                });
-            } catch (erro) {
-                throw new Error(`Erro ao cadastrar usuário no backend (${erro.message}).`);
+            // Salva usuário no Firestore
+            if (typeof firebase === 'undefined') throw new Error('Firebase não carregado');
+            const snap = await firebase.firestore().collection('usuarios_rh').where('email', '==', email).get();
+            if (!snap.empty) {
+                // Usuário já existe
+                return { status: snap.docs[0].data().status };
             }
+            await firebase.firestore().collection('usuarios_rh').add({
+                email,
+                nome,
+                status: 'aprovado', // ou 'pendente' se quiser aprovação manual
+                criado_em: new Date().toISOString()
+            });
+            return { status: 'aprovado' };
         }
 
         function marcarCadastroPendente(email, nome) {
@@ -297,9 +232,11 @@
             }
 
             const configFirebase = await obterFirebaseConfigPublica();
+
             const firebaseConfig = {
                 apiKey: configFirebase.apiKey,
-                authDomain: FIREBASE_PROJECT_HOST
+                authDomain: FIREBASE_PROJECT_HOST,
+                projectId: "normatel-rh" // Substitua pelo seu projectId real se necessário
             };
 
             if (!firebase.apps || firebase.apps.length === 0) {
@@ -696,11 +633,8 @@
             document.getElementById('loginBtn').disabled = true;
             document.getElementById('registerBtn').disabled = true;
 
-            if (!BACKEND_URL) {
-                definirMensagem('⚠️ Backend não configurado neste domínio. No console: localStorage.setItem("rh_backend_url","https://SUA-API") e recarregue.', 'error');
-            } else {
-                console.log('🔗 Backend URL em uso:', BACKEND_URL);
-            }
+
+            // Não há mais backend, tudo é Firebase
 
             if (typeof firebase !== 'undefined') {
                 document.getElementById('registerBtn').disabled = false;

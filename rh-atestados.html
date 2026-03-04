@@ -73,23 +73,20 @@
   </main>
 
   <script>
-    const BACKEND_URL = 'http://localhost:3001';
 
-    function registrarEventoBackend(acao, detalhes = {}) {
-      const payload = {
-        acao,
-        pagina: 'rh-atestados.html',
-        email: localStorage.getItem('rh_user_email') || '',
-        usuarioId: localStorage.getItem('rh_user_id') || '',
-        detalhes
-      };
-
-      fetch(`${BACKEND_URL}/api/eventos`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        keepalive: true
-      }).catch(() => {});
+    async function registrarEventoBackend(acao, detalhes = {}) {
+      if (typeof firebase !== 'undefined') {
+        try {
+          await firebase.firestore().collection('eventos_frontend').add({
+            acao,
+            pagina: 'rh-atestados.html',
+            email: localStorage.getItem('rh_user_email') || '',
+            usuarioId: localStorage.getItem('rh_user_id') || '',
+            detalhes,
+            criado_em: new Date().toISOString()
+          });
+        } catch {}
+      }
     }
 
     registrarEventoBackend('acesso_pagina');
@@ -120,6 +117,11 @@
       window.location.href = destino;
     }
   </script>
-  <script type="module" src="rh-dashboard.js?v=20260226"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="rh-dashboard.js?v=20260226"></script>
 </body>
 </html>

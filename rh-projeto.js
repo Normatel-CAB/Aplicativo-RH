@@ -1,4 +1,4 @@
-const BACKEND_URL = 'http://localhost:3001';
+//const BACKEND_URL = '';
 
 const projetoTitulo = document.getElementById('projetoTitulo');
 const projetoDescricao = document.getElementById('projetoDescricao');
@@ -169,13 +169,14 @@ function criarCardRegistro(record) {
   card.className = 'detalhe-card';
 
   const arquivos = Array.isArray(record.arquivos)
-    ? record.arquivos
-    : (typeof record.arquivos === 'string' && record.arquivos ? [record.arquivos] : []);
+    ? record.arquivos.map((arquivo) => (typeof arquivo === 'string' ? { url: arquivo } : arquivo))
+    : (typeof record.arquivos === 'string' && record.arquivos ? [{ url: record.arquivos }] : []);
 
   const arquivosHtml = arquivos.length
     ? arquivos
-      .filter((urlArquivo) => validarUrl(urlArquivo))
-      .map((urlArquivo, indice) => {
+      .filter((arquivo) => validarUrl(arquivo?.url || arquivo))
+      .map((arquivo, indice) => {
+        const urlArquivo = arquivo?.url || arquivo;
         const nomeExibicao = montarNomePdfPorRegistro(record, indice, arquivos.length);
         return `<a class="download-pdf-link" href="${urlArquivo}" download="${nomeExibicao}" data-download-name="${encodeURIComponent(nomeExibicao)}">${nomeExibicao}</a>`;
       })
@@ -239,13 +240,13 @@ function ativarDownloadComNome() {
 function coletarArquivosDosRegistros(registros) {
   return registros.flatMap((registro) => {
     const arquivos = Array.isArray(registro?.arquivos)
-      ? registro.arquivos
-      : (typeof registro?.arquivos === 'string' && registro.arquivos ? [registro.arquivos] : []);
+      ? registro.arquivos.map((arquivo) => (typeof arquivo === 'string' ? { url: arquivo } : arquivo))
+      : (typeof registro?.arquivos === 'string' && registro.arquivos ? [{ url: registro.arquivos }] : []);
 
     return arquivos
-      .filter((url) => validarUrl(url))
-      .map((urlArquivo, indice) => ({
-        url: urlArquivo,
+      .filter((arquivo) => validarUrl(arquivo?.url || arquivo))
+      .map((arquivo, indice) => ({
+        url: arquivo?.url || arquivo,
         nome: montarNomePdfPorRegistro(registro, indice, arquivos.length)
       }));
   });
@@ -379,6 +380,7 @@ function configurarEventosFiltros() {
   }
 }
 
+let todosRegistros = [];
 async function carregarDetalhesProjeto() {
   const params = new URLSearchParams(window.location.search);
   const codigoProjeto = params.get('projeto') || '';
@@ -394,7 +396,9 @@ async function carregarDetalhesProjeto() {
   setDetalhesStatus('Carregando informações preenchidas...', 'info');
 
   try {
-    const todosRegistros = await requisicaoBackendJson(`${BACKEND_URL}/api/envios`);
+    // Buscar todos os registros do Firestore
+    const snapshot = await window.firebase.firestore().collection('envios_atestados').get();
+    todosRegistros = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     const padraoProjeto = new RegExp(`\\b${codigoProjeto}\\b`);
 
     registrosProjeto = todosRegistros.filter((registro) => padraoProjeto.test(String(registro?.projeto || '')));

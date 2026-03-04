@@ -96,6 +96,8 @@ function criarCardPendente(usuario) {
 
 
 
+import { db, collection, getDocs, query, where, doc, updateDoc } from './firebase-config.js';
+
 async function carregarPendentes() {
   setUsuariosStatus('Carregando usuários pendentes...', 'info');
   usuariosPendentes.innerHTML = '';
@@ -103,9 +105,11 @@ async function carregarPendentes() {
     totalPendentes.textContent = '0';
   }
   try {
-    const resp = await fetch(`${BACKEND_URL}/api/usuarios/pendentes`);
-    if (!resp.ok) throw new Error('Erro ao buscar usuários');
-    const pendentes = await resp.json();
+    // Busca usuários com status 'pendente' no Firestore
+    const usuariosRef = collection(db, 'usuarios_rh');
+    const q = query(usuariosRef, where('status', '==', 'pendente'));
+    const snapshot = await getDocs(q);
+    const pendentes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
     if (totalPendentes) {
       totalPendentes.textContent = String(pendentes.length);
@@ -130,8 +134,9 @@ async function aprovarUsuario(userId, botao) {
   botao.disabled = true;
   botao.textContent = 'Aprovando...';
   try {
-    const resp = await fetch(`${BACKEND_URL}/api/usuarios/aprovar/${userId}`, { method: 'POST' });
-    if (!resp.ok) throw new Error('Erro ao aprovar usuário');
+    // Atualiza o status do usuário para 'aprovado' no Firestore
+    const usuarioRef = doc(db, 'usuarios_rh', userId);
+    await updateDoc(usuarioRef, { status: 'aprovado' });
     registrarEventoBackend('usuario_aprovado', { usuarioIdAprovado: userId });
     const card = botao.closest('.usuario-item');
     if (card) {
