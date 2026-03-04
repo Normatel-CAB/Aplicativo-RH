@@ -1,0 +1,11 @@
+node_modules
+npm-debug.log*
+.git
+.gitignore
+.vscode
+firebase-debug.log
+*.md
+assets
+*.html
+*.ps1
+backend/data
