@@ -360,6 +360,7 @@ async function salvarArquivosDoEnvioNoStorage(envioId, arquivosEntrada) {
       resumable: false,
       metadata: {
         contentType: mimeType,
+        contentDisposition: `attachment; filename="${nomeOriginal}"`,
         cacheControl: 'private, max-age=0, no-transform',
         metadata: {
           envioId: String(envioId),

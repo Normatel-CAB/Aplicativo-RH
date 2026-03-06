@@ -57,18 +57,25 @@ async function carregarUsuariosPendentes() {
   const carregando = document.getElementById('carregando');
   carregando.classList.remove('hidden');
   try {
-    // Busca usuários pendentes no Firestore
-    const snap = await window.firebase.firestore().collection('usuarios_rh').where('status', '==', 'pendente').get();
+    // Busca usuários e filtra pendentes por compatibilidade de modelo.
+    const snap = await window.firebase.firestore().collection('usuarios_rh').get();
     carregando.classList.add('hidden');
+    const docsPendentes = snap.docs.filter((doc) => {
+      const usuario = doc.data() || {};
+      const status = String(usuario.status || '').toLowerCase();
+      const aprovado = usuario.aprovado === true;
+      return status === 'pendente' || (!aprovado && status !== 'aprovado' && status !== 'rejeitado');
+    });
+
     const totalPendentes = document.getElementById('totalPendentes');
-    totalPendentes.textContent = snap.size;
+    totalPendentes.textContent = docsPendentes.length;
     const listaPendentes = document.getElementById('listaPendentes');
-    if (snap.empty) {
+    if (!docsPendentes.length) {
       listaPendentes.innerHTML = '<div class="status-vazio">✅ Nenhum usuário pendente de aprovação</div>';
       return;
     }
     listaPendentes.innerHTML = '';
-    snap.forEach(doc => {
+    docsPendentes.forEach(doc => {
       const usuario = doc.data();
       const div = document.createElement('div');
       div.className = 'usuario-item';
@@ -97,7 +104,7 @@ async function aprovarUsuario(usuarioId, usuarioNome) {
   }
   definirMensagem('⏳ Aprovando usuário...', 'loading');
   try {
-    await window.firebase.firestore().collection('usuarios_rh').doc(usuarioId).update({ status: 'aprovado' });
+    await window.firebase.firestore().collection('usuarios_rh').doc(usuarioId).update({ status: 'aprovado', aprovado: true, atualizado_em: new Date().toISOString() });
     definirMensagem(`✅ ${usuarioNome} foi aprovado com sucesso!`, 'success');
     setTimeout(() => {
       carregarUsuariosPendentes();
@@ -116,7 +123,7 @@ async function rejeitarUsuario(usuarioId, usuarioNome) {
   definirMensagem('⏳ Rejeitando usuário...', 'loading');
   try {
     // Atualiza o status do usuário para "rejeitado" no Firestore
-    await window.firebase.firestore().collection('usuarios_rh').doc(usuarioId).update({ status: 'rejeitado' });
+    await window.firebase.firestore().collection('usuarios_rh').doc(usuarioId).update({ status: 'rejeitado', aprovado: false, atualizado_em: new Date().toISOString() });
     definirMensagem(`✅ ${usuarioNome} foi rejeitado e removido do sistema.`, 'success');
     setTimeout(() => {
       carregarUsuariosPendentes();

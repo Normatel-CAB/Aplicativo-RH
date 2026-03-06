@@ -856,6 +856,44 @@ select:focus-visible {
   text-decoration: underline;
 }
 
+.download-pdf-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+}
+
+.download-file-name {
+  word-break: break-word;
+}
+
+.download-file-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid #89b9f2;
+  border-radius: 50%;
+  background: #edf4ff;
+  color: #1256ad;
+  font-size: 0;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.download-file-action::before {
+  content: "\\2B07";
+  font-size: 0.8rem;
+}
+
+.download-pdf-link:hover .download-file-action {
+  background: #dbeaff;
+  border-color: #6ca6e8;
+}
+
 .table-wrapper {
   width: 100%;
   overflow-x: auto;
@@ -1137,6 +1175,23 @@ select:focus-visible {
 .ms-auth-btn-secondary:hover {
   filter: none;
   background: linear-gradient(160deg, #ffffff 0%, #edf8f1 100%);
+}
+
+.ms-auth-btn-secondary.is-approval-locked {
+  background: linear-gradient(160deg, #f2f4f3 0%, #e7ece9 100%);
+  color: #4f5f56;
+  border-color: #b9c7c0;
+  box-shadow: none;
+}
+
+.ms-auth-btn-secondary.is-approval-locked .ms-icon {
+  opacity: 0.55;
+}
+
+.ms-auth-btn-secondary.is-approval-locked::after {
+  content: "\1F512";
+  font-size: 0.9rem;
+  margin-left: 4px;
 }
 
 .ms-icon {

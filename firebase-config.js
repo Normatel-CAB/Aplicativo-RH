@@ -23,4 +23,9 @@ if (!window.firebase.apps.length) {
 
 window.db = window.firebase.firestore();
 window.auth = window.firebase.auth();
-window.storage = window.firebase.storage();
+if (typeof window.firebase.storage === 'function') {
+  window.storage = window.firebase.storage();
+} else {
+  // Algumas telas (ex.: login) não carregam o SDK de Storage.
+  window.storage = null;
+}

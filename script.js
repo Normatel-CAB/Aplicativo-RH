@@ -285,9 +285,18 @@ function ocultarProgressoUpload() {
   uploadProgressWrapper.classList.add('hidden');
 }
 
-function uploadComProgresso(storageRef, blob, bytesTransferidosPorArquivo, indiceArquivo, totalBytes) {
+
+function uploadComProgresso(storageRef, blob, bytesTransferidosPorArquivo, indiceArquivo, totalBytes, nomeArquivoDownload = 'arquivo.pdf') {
   return new Promise((resolve, reject) => {
-    const uploadTask = storageRef.put(blob, { contentType: 'application/pdf' });
+    const nomeSeguroHeader = String(nomeArquivoDownload || 'arquivo.pdf')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9._ -]/g, '_');
+
+    const uploadTask = storageRef.put(blob, {
+      contentType: 'application/pdf',
+      contentDisposition: `attachment; filename="${nomeSeguroHeader}"`
+    });
 
     uploadTask.on('state_changed', (snapshot) => {
       bytesTransferidosPorArquivo[indiceArquivo] = snapshot.bytesTransferred;
@@ -501,17 +510,26 @@ form.addEventListener('submit', async (event) => {
 
   if (!form.checkValidity()) {
     form.reportValidity();
+    definirMensagemStatus('Revise os campos obrigatórios antes de enviar.', 'error');
     definirEstadoEnvio(false);
     return;
   }
 
   if (!window.jspdf) {
+    definirMensagemStatus('Falha ao carregar a biblioteca de PDF. Atualize a página.', 'error');
     definirEstadoEnvio(false);
     return;
   }
 
   const listaArquivos = Array.from(arquivos.files || []);
   if (!listaArquivos.length) {
+    definirMensagemStatus('Selecione pelo menos um arquivo para enviar.', 'error');
+    definirEstadoEnvio(false);
+    return;
+  }
+
+  if (!window.storage || !window.db) {
+    definirMensagemStatus('Firebase não inicializado. Atualize a página e tente novamente.', 'error');
     definirEstadoEnvio(false);
     return;
   }
@@ -536,6 +554,7 @@ form.addEventListener('submit', async (event) => {
 
     if (naoSuportados.length) {
       ocultarProgressoUpload();
+      definirMensagemStatus(`Arquivo(s) não suportado(s): ${naoSuportados.join(', ')}`, 'error');
       definirEstadoEnvio(false);
       return;
     }
@@ -565,12 +584,7 @@ form.addEventListener('submit', async (event) => {
     }
 
     // Verifica se o usuário está autenticado antes de qualquer operação sensível
-    const user = window.auth && window.auth.currentUser;
-    if (!user) {
-      ocultarProgressoUpload();
-      definirEstadoEnvio(false);
-      return;
-    }
+    // Fluxo público: o envio não depende de sessão Firebase Auth.
 
     atualizarProgressoUpload(5, '5%');
 
@@ -586,7 +600,7 @@ form.addEventListener('submit', async (event) => {
           : nomePdfPadrao;
 
         const storageRef = window.storage.ref(`atestados/${timestampBase}_${indice + 1}_${nomeArquivo}`);
-        const url = await uploadComProgresso(storageRef, convertido.blob, bytesTransferidosPorArquivo, indice, totalBytes);
+        const url = await uploadComProgresso(storageRef, convertido.blob, bytesTransferidosPorArquivo, indice, totalBytes, nomeArquivo);
 
         return {
           nome: nomeArquivo,
@@ -619,6 +633,12 @@ form.addEventListener('submit', async (event) => {
   } catch (error) {
     console.error('Erro ao enviar atestado:', error);
     ocultarProgressoUpload();
+    const textoErro = `${error?.code || ''} ${error?.message || ''}`.toLowerCase();
+    if (textoErro.includes('storage/unauthorized') || textoErro.includes('forbidden')) {
+      definirMensagemStatus('Erro ao enviar: Firebase Storage bloqueou o upload. Publique as regras de Storage no Firebase Console.', 'error');
+    } else {
+      definirMensagemStatus(`Erro ao enviar: ${error?.message || 'Falha inesperada.'}`, 'error');
+    }
     definirEstadoEnvio(false);
   }
 });

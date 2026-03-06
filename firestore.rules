@@ -1,6 +1,47 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isEnvioValido() {
+      return request.resource.data.keys().hasAll(['nome','funcao','projeto','tipo_atestado','data_inicio','data_fim','dias','arquivos','criado_em'])
+        && request.resource.data.nome is string
+        && request.resource.data.funcao is string
+        && request.resource.data.projeto is string
+        && request.resource.data.tipo_atestado is string
+        && request.resource.data.data_inicio is string
+        && request.resource.data.data_fim is string
+        && request.resource.data.dias is int
+        && request.resource.data.arquivos is list
+        && request.resource.data.criado_em is string
+        && request.resource.data.nome.size() > 0
+        && request.resource.data.nome.size() <= 150
+        && request.resource.data.funcao.size() > 0
+        && request.resource.data.funcao.size() <= 120
+        && request.resource.data.projeto.size() > 0
+        && request.resource.data.projeto.size() <= 120
+        && request.resource.data.tipo_atestado.size() > 0
+        && request.resource.data.tipo_atestado.size() <= 80
+        && request.resource.data.dias >= 1
+        && request.resource.data.dias <= 365
+        && request.resource.data.arquivos.size() >= 1
+        && request.resource.data.arquivos.size() <= 10;
+    }
+
+    // Necessário para o login RH verificar se o e-mail já existe/aprovado
+    // antes de estabelecer sessão Firebase no cliente.
+    match /usuarios_rh/{userDoc} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Necessário para o painel RH listar os registros sem depender
+    // de sessão Firebase Auth no frontend (fluxo atual usa MSAL).
+    match /envios_atestados/{envioDoc} {
+      allow read: if true;
+      allow create: if isEnvioValido();
+      allow write: if request.auth != null;
+    }
+
+    // Demais dados permanecem restritos a usuário autenticado.
     match /{document=**} {
       allow read, write: if request.auth != null;
     }

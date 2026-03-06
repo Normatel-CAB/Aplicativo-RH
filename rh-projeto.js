@@ -9,6 +9,7 @@ const filtroDataInicioInput = document.getElementById('filtroDataInicio');
 const filtroDataFimInput = document.getElementById('filtroDataFim');
 const filtroTipoSelect = document.getElementById('filtroTipoAtestado');
 const baixarFiltradosBtn = document.getElementById('baixarFiltradosBtn');
+const BACKEND_URL = (localStorage.getItem('rh_backend_url') || '').trim().replace(/\/+$/, '');
 
 const BASES_PROJETO = {
   '736': 'Base Imbetiba',
@@ -49,6 +50,38 @@ async function requisicaoBackendJson(url, options = {}, tentativas = 2) {
   }
 
   throw new Error(`${ultimaResposta?.status || 'BACKEND_ERROR'}`);
+}
+
+function erroPermissaoFirestore(error) {
+  const texto = `${error?.code || ''} ${error?.message || ''}`.toLowerCase();
+  return texto.includes('permission-denied') || texto.includes('missing or insufficient permissions');
+}
+
+function resolverBackendUrl() {
+  return BACKEND_URL;
+}
+
+async function carregarEnviosComFallback() {
+  try {
+    const snapshot = await window.firebase.firestore().collection('envios_atestados').get();
+    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    if (!erroPermissaoFirestore(error)) {
+      throw error;
+    }
+
+    const backendBase = resolverBackendUrl();
+    if (!backendBase) {
+      throw new Error('Sem permissão no Firestore para ler envios_atestados. Publique regras no Firebase Console liberando leitura desta coleção para o painel RH.');
+    }
+
+    try {
+      const dados = await requisicaoBackendJson(`${backendBase}/api/envios?limit=1000`);
+      return Array.isArray(dados) ? dados : [];
+    } catch (erroBackend) {
+      throw new Error(`Backend indisponível (${backendBase}) e Firestore sem permissão para envios_atestados.`);
+    }
+  }
 }
 
 function setDetalhesStatus(texto, tipo = 'info') {
@@ -151,12 +184,42 @@ function montarNomePdfPorRegistro(record, indice = 0, totalArquivos = 1) {
   return `${base}.pdf`;
 }
 
+function obterNomeArquivoEnviado(arquivo, record, indice, totalArquivos) {
+  const nomeArquivoSalvo = typeof arquivo?.nome === 'string' ? arquivo.nome.trim() : '';
+  if (nomeArquivoSalvo) {
+    return nomeArquivoSalvo;
+  }
+
+  return montarNomePdfPorRegistro(record, indice, totalArquivos);
+}
+
 function validarUrl(url) {
   try {
     const parsed = new URL(url);
     return parsed.protocol === 'http:' || parsed.protocol === 'https:';
   } catch {
     return false;
+  }
+}
+
+function sanitizarNomeArquivoDownload(nome) {
+  const base = String(nome || 'arquivo.pdf').trim() || 'arquivo.pdf';
+  return base
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9._ -]/g, '_')
+    .replace(/["\\\r\n]/g, '_');
+}
+
+function montarUrlForcarDownload(urlArquivo, nomeDownload) {
+  try {
+    const parsed = new URL(urlArquivo);
+    const nomeSeguro = sanitizarNomeArquivoDownload(nomeDownload);
+    parsed.searchParams.set('response-content-disposition', `attachment; filename="${nomeSeguro}"`);
+    parsed.searchParams.set('response-content-type', 'application/octet-stream');
+    return parsed.toString();
+  } catch {
+    return urlArquivo;
   }
 }
 
@@ -177,8 +240,9 @@ function criarCardRegistro(record) {
       .filter((arquivo) => validarUrl(arquivo?.url || arquivo))
       .map((arquivo, indice) => {
         const urlArquivo = arquivo?.url || arquivo;
-        const nomeExibicao = montarNomePdfPorRegistro(record, indice, arquivos.length);
-        return `<a class="download-pdf-link" href="${urlArquivo}" download="${nomeExibicao}" data-download-name="${encodeURIComponent(nomeExibicao)}">${nomeExibicao}</a>`;
+        const nomeExibicao = obterNomeArquivoEnviado(arquivo, record, indice, arquivos.length);
+        const urlDownload = montarUrlForcarDownload(urlArquivo, nomeExibicao);
+        return `<a class="download-pdf-link" href="${urlDownload}" download="${nomeExibicao}" data-download-name="${encodeURIComponent(nomeExibicao)}" data-raw-url="${encodeURIComponent(urlArquivo)}"><span class="download-file-name">${nomeExibicao}</span><span class="download-file-action">Baixar</span></a>`;
       })
       .join('<br>')
     : '-';
@@ -205,18 +269,22 @@ function criarCardRegistro(record) {
 }
 
 async function baixarArquivoComNome(urlArquivo, nomeDownload) {
-  const resposta = await fetch(urlArquivo, { credentials: 'omit' });
-  if (!resposta.ok) throw new Error('Falha ao baixar arquivo.');
-
-  const blob = await resposta.blob();
-  const blobUrl = URL.createObjectURL(blob);
+  const urlDownload = montarUrlForcarDownload(urlArquivo, nomeDownload);
   const link = document.createElement('a');
-  link.href = blobUrl;
+  link.href = urlDownload;
   link.download = nomeDownload;
   document.body.appendChild(link);
   link.click();
   link.remove();
-  setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+}
+
+function ehUrlFirebaseStorage(urlArquivo) {
+  try {
+    const parsed = new URL(urlArquivo);
+    return parsed.hostname === 'firebasestorage.googleapis.com';
+  } catch {
+    return false;
+  }
 }
 
 function ativarDownloadComNome() {
@@ -225,7 +293,8 @@ function ativarDownloadComNome() {
     if (!link) return;
 
     event.preventDefault();
-    const urlArquivo = link.getAttribute('href');
+    const raw = link.getAttribute('data-raw-url') || '';
+    const urlArquivo = raw ? decodeURIComponent(raw) : (link.getAttribute('href') || '');
     const nomeCodificado = link.getAttribute('data-download-name') || '';
     const nomeDownload = nomeCodificado ? decodeURIComponent(nomeCodificado) : 'arquivo.pdf';
 
@@ -247,7 +316,7 @@ function coletarArquivosDosRegistros(registros) {
       .filter((arquivo) => validarUrl(arquivo?.url || arquivo))
       .map((arquivo, indice) => ({
         url: arquivo?.url || arquivo,
-        nome: montarNomePdfPorRegistro(registro, indice, arquivos.length)
+        nome: obterNomeArquivoEnviado(arquivo, registro, indice, arquivos.length)
       }));
   });
 }
@@ -279,6 +348,21 @@ async function baixarPdfsFiltrados() {
   atualizarBotaoDownloadEmMassa();
 
   try {
+    const temArquivoComRestricaoCors = arquivos.some((arquivo) => ehUrlFirebaseStorage(arquivo.url));
+    if (temArquivoComRestricaoCors) {
+      // Em localhost o Firebase Storage pode bloquear fetch por CORS. Faz download direto de cada arquivo.
+      for (let i = 0; i < arquivos.length; i += 1) {
+        const arquivo = arquivos[i];
+        await baixarArquivoComNome(arquivo.url, arquivo.nome);
+        if (i < arquivos.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 180));
+        }
+      }
+
+      setDetalhesStatus('Downloads iniciados individualmente (ZIP indisponível em localhost por CORS do Firebase Storage).', 'info');
+      return;
+    }
+
     const zip = new window.JSZip();
     const nomesUsados = new Set();
 
@@ -396,9 +480,8 @@ async function carregarDetalhesProjeto() {
   setDetalhesStatus('Carregando informações preenchidas...', 'info');
 
   try {
-    // Buscar todos os registros do Firestore
-    const snapshot = await window.firebase.firestore().collection('envios_atestados').get();
-    todosRegistros = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    // Busca no Firestore e faz fallback para backend quando necessário.
+    todosRegistros = await carregarEnviosComFallback();
     const padraoProjeto = new RegExp(`\\b${codigoProjeto}\\b`);
 
     registrosProjeto = todosRegistros.filter((registro) => padraoProjeto.test(String(registro?.projeto || '')));
