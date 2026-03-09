@@ -9,6 +9,7 @@ const filtroDataInicioInput = document.getElementById('filtroDataInicio');
 const filtroDataFimInput = document.getElementById('filtroDataFim');
 const filtroTipoSelect = document.getElementById('filtroTipoAtestado');
 const baixarFiltradosBtn = document.getElementById('baixarFiltradosBtn');
+const voltarPainelRhProjetoBtn = document.getElementById('voltarPainelRhProjetoBtn');
 const BACKEND_URL = (localStorage.getItem('rh_backend_url') || '').trim().replace(/\/+$/, '');
 
 const BASES_PROJETO = {
@@ -23,6 +24,7 @@ let registrosProjeto = [];
 let registrosProjetoFiltrados = [];
 let downloadMassaEmAndamento = false;
 let detalhesStatusTimer = null;
+let codigoProjetoAtual = '';
 
 async function requisicaoBackendJson(url, options = {}, tentativas = 2) {
   let ultimaResposta = null;
@@ -168,6 +170,86 @@ function normalizarTexto(valor) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .trim();
+}
+
+function obterEstadoFiltrosDaUrl() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    nome: String(params.get('nome') || '').trim(),
+    inicio: String(params.get('inicio') || '').trim(),
+    fim: String(params.get('fim') || '').trim(),
+    tipo: String(params.get('tipo') || '').trim()
+  };
+}
+
+function atualizarUrlEstadoDetalhes() {
+  const params = new URLSearchParams(window.location.search);
+
+  if (codigoProjetoAtual) {
+    params.set('projeto', codigoProjetoAtual);
+  }
+
+  const nome = String(filtroNomeInput?.value || '').trim();
+  const inicio = String(filtroDataInicioInput?.value || '').trim();
+  const fim = String(filtroDataFimInput?.value || '').trim();
+  const tipo = String(filtroTipoSelect?.value || '').trim();
+
+  if (nome) {
+    params.set('nome', nome);
+  } else {
+    params.delete('nome');
+  }
+
+  if (inicio) {
+    params.set('inicio', inicio);
+  } else {
+    params.delete('inicio');
+  }
+
+  if (fim) {
+    params.set('fim', fim);
+  } else {
+    params.delete('fim');
+  }
+
+  if (tipo) {
+    params.set('tipo', tipo);
+  } else {
+    params.delete('tipo');
+  }
+
+  const novaUrl = `${window.location.pathname}?${params.toString()}`;
+  window.history.replaceState({}, '', novaUrl);
+}
+
+function restaurarEstadoFiltrosDaUrl() {
+  const estado = obterEstadoFiltrosDaUrl();
+
+  if (filtroNomeInput && estado.nome) {
+    filtroNomeInput.value = estado.nome;
+  }
+  if (filtroDataInicioInput && estado.inicio) {
+    filtroDataInicioInput.value = estado.inicio;
+  }
+  if (filtroDataFimInput && estado.fim) {
+    filtroDataFimInput.value = estado.fim;
+  }
+
+  if (filtroTipoSelect && estado.tipo) {
+    const optionExiste = Array.from(filtroTipoSelect.options).some((opt) => opt.value === estado.tipo);
+    if (optionExiste) {
+      filtroTipoSelect.value = estado.tipo;
+    }
+  }
+}
+
+function configurarLinkVoltar() {
+  if (!voltarPainelRhProjetoBtn) return;
+
+  const params = new URLSearchParams(window.location.search);
+  const origem = String(params.get('origem') || 'rh-atestados.html').trim();
+  const origemSegura = /^[a-z0-9\-_.]+\.html$/i.test(origem) ? origem : 'rh-atestados.html';
+  voltarPainelRhProjetoBtn.href = origemSegura;
 }
 
 function obterDataISO(valorDataHora) {
@@ -537,11 +619,13 @@ function aplicarFiltros() {
 
   if (!filtrados.length) {
     setDetalhesStatus('Nenhum registro encontrado com os filtros aplicados.', 'info');
+    atualizarUrlEstadoDetalhes();
     return;
   }
 
   filtrados.forEach((registro) => detalhesContainer.appendChild(criarCardRegistro(registro)));
   setDetalhesStatus(`Mostrando ${filtrados.length} de ${registrosProjeto.length} registro(s).`, 'success');
+  atualizarUrlEstadoDetalhes();
 }
 
 function configurarEventosFiltros() {
@@ -558,13 +642,15 @@ let todosRegistros = [];
 async function carregarDetalhesProjeto() {
   const params = new URLSearchParams(window.location.search);
   const codigoProjeto = params.get('projeto') || '';
+  codigoProjetoAtual = codigoProjeto;
 
   if (!codigoProjeto) {
     setDetalhesStatus('Projeto não informado.', 'error');
     return;
   }
 
-  projetoTitulo.textContent = `Projeto ${codigoProjeto}`;
+  const tituloProjeto = /^\d+$/.test(codigoProjeto) ? `Projeto ${codigoProjeto}` : codigoProjeto;
+  projetoTitulo.textContent = tituloProjeto;
   projetoDescricao.textContent = BASES_PROJETO[codigoProjeto] || 'Bases relacionadas ao projeto selecionado.';
 
   setDetalhesStatus('Carregando informações preenchidas...', 'info');
@@ -587,6 +673,7 @@ async function carregarDetalhesProjeto() {
 
     preencherFiltroTipo(registrosProjeto);
     aplicarFiltroTipoInicialDaUrl();
+    restaurarEstadoFiltrosDaUrl();
     aplicarFiltros();
   } catch (error) {
     setDetalhesStatus(`Erro ao carregar informações: ${error?.message || 'Falha ao carregar dados do projeto.'}`, 'error');
@@ -594,5 +681,6 @@ async function carregarDetalhesProjeto() {
 }
 
 ativarDownloadComNome();
+configurarLinkVoltar();
 configurarEventosFiltros();
 carregarDetalhesProjeto();

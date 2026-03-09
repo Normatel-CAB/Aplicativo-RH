@@ -121,8 +121,8 @@ body::-webkit-scrollbar {
 }
 
 .page-head {
-  margin-bottom: 4px;
-  padding: 2px 2px 0;
+  margin-bottom: 6px;
+  padding: 4px 2px 2px;
 }
 
 h1 {
@@ -135,8 +135,8 @@ h1 {
 .page-subtitle {
   margin: 0;
   color: #2f6f46;
-  font-size: 0.95rem;
-  line-height: 1.5;
+  font-size: 0.96rem;
+  line-height: 1.55;
   max-width: 70ch;
 }
 
@@ -608,9 +608,10 @@ select:focus-visible {
 
 .rh-list-actions {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  min-height: 46px;
 }
 
 .rh-demandas-grid {
@@ -925,6 +926,12 @@ select:focus-visible {
 .rh-list-btn-group .rh-logout-btn {
   margin-top: 0;
   min-width: 168px;
+}
+
+.rh-action-link-btn {
+  margin-top: 0;
+  min-width: 168px;
+  white-space: nowrap;
 }
 
 .rh-admin-btn {
@@ -1962,7 +1969,8 @@ select:focus-visible {
   }
 
   .rh-list-btn-group.rh-list-btn-group--fixed .rh-admin-btn,
-  .rh-list-btn-group.rh-list-btn-group--fixed .rh-logout-btn {
+  .rh-list-btn-group.rh-list-btn-group--fixed .rh-logout-btn,
+  .rh-list-btn-group.rh-list-btn-group--fixed .rh-action-link-btn {
     width: auto;
     min-width: 120px;
   }

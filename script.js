@@ -32,6 +32,7 @@ const MS_POR_DIA = 24 * 60 * 60 * 1000;
 const MAX_LADO_IMAGEM_PDF = 1600;
 const QUALIDADE_JPEG_PDF = 0.82;
 const PROJETO_PRESELECIONADO_KEY = 'rh_projeto_preselecionado';
+const GATE_FILTRO_BUSCA_KEY = 'rh_gate_filtro_busca';
 const FORMULARIO_PAGE_PATH = 'formulario.html';
 
 function normalizarProjeto(valor) {
@@ -45,6 +46,43 @@ function normalizarTextoBusca(valor) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
+}
+
+function obterValorParamUrl(nomeParam) {
+  try {
+    const url = new URL(window.location.href);
+    return String(url.searchParams.get(nomeParam) || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+function atualizarParamUrlSemRecarregar(nomeParam, valorParam) {
+  try {
+    const url = new URL(window.location.href);
+    const valor = String(valorParam || '').trim();
+    if (valor) {
+      url.searchParams.set(nomeParam, valor);
+    } else {
+      url.searchParams.delete(nomeParam);
+    }
+
+    const novaUrl = `${url.pathname}${url.search}${url.hash}`;
+    window.history.replaceState({}, '', novaUrl);
+  } catch {
+    // Ignora falhas de parse de URL para nao afetar fluxo principal.
+  }
+}
+
+function obterFiltroBuscaInicialGate() {
+  const buscaUrl = obterValorParamUrl('busca');
+  const buscaLocal = String(localStorage.getItem(GATE_FILTRO_BUSCA_KEY) || '').trim();
+  return buscaUrl || buscaLocal;
+}
+
+function atualizarEstadoNavegacaoGate(projeto = '', busca = '') {
+  atualizarParamUrlSemRecarregar('projeto', normalizarProjeto(projeto));
+  atualizarParamUrlSemRecarregar('busca', String(busca || '').trim());
 }
 
 function atualizarMensagemGate(texto, tipo = 'info') {
@@ -92,7 +130,17 @@ function redirecionarParaFormularioComProjeto(valorProjeto) {
   }
 
   localStorage.setItem(PROJETO_PRESELECIONADO_KEY, valor);
-  const destino = `${FORMULARIO_PAGE_PATH}?projeto=${encodeURIComponent(valor)}`;
+  const params = new URLSearchParams();
+  params.set('projeto', valor);
+  params.set('origem', 'index.html');
+
+  const buscaAtual = String(gateProjetoFiltro?.value || '').trim();
+  if (buscaAtual) {
+    params.set('busca', buscaAtual);
+    localStorage.setItem(GATE_FILTRO_BUSCA_KEY, buscaAtual);
+  }
+
+  const destino = `${FORMULARIO_PAGE_PATH}?${params.toString()}`;
   window.location.href = destino;
 }
 
@@ -146,6 +194,7 @@ function aplicarFiltroProjetosGate(termoBusca = '') {
 
   const termo = normalizarTextoBusca(termoBusca);
   const termos = termo ? termo.split(/\s+/).filter(Boolean) : [];
+  const termoOriginal = String(termoBusca || '').trim();
   let visiveis = 0;
 
   gateProjetoCards.forEach((card) => {
@@ -157,6 +206,31 @@ function aplicarFiltroProjetosGate(termoBusca = '') {
   });
 
   atualizarInfoFiltroProjetos(visiveis, gateProjetoCards.length, termoBusca);
+  if (termoOriginal) {
+    localStorage.setItem(GATE_FILTRO_BUSCA_KEY, termoOriginal);
+  } else {
+    localStorage.removeItem(GATE_FILTRO_BUSCA_KEY);
+  }
+
+  atualizarEstadoNavegacaoGate(projetoSelecionadoNoGate, termoOriginal);
+}
+
+function atualizarLinkVoltarFormulario() {
+  const backLink = document.querySelector('.form-back-btn');
+  if (!backLink) return;
+
+  const params = new URLSearchParams();
+  const projeto = normalizarProjeto(projetoSelecionadoNoGate || projetoSelect?.value || localStorage.getItem(PROJETO_PRESELECIONADO_KEY));
+  const busca = String(obterValorParamUrl('busca') || localStorage.getItem(GATE_FILTRO_BUSCA_KEY) || '').trim();
+
+  if (projeto) {
+    params.set('projeto', projeto);
+  }
+  if (busca) {
+    params.set('busca', busca);
+  }
+
+  backLink.href = `index.html${params.toString() ? `?${params.toString()}` : ''}`;
 }
 
 function inicializarGateProjeto() {
@@ -194,7 +268,15 @@ function inicializarGateProjeto() {
     if (projetoValidoNoSelect) {
       gateProjetoSelect.value = projetoSalvo;
       projetoSelecionadoNoGate = projetoSalvo;
+      atualizarEstadoNavegacaoGate(projetoSelecionadoNoGate, obterFiltroBuscaInicialGate());
     }
+  }
+
+  if (projetoSelecionadoNoGate) {
+    gateProjetoCards.forEach((card) => {
+      const ativo = normalizarProjeto(card.dataset.projeto) === projetoSelecionadoNoGate;
+      card.classList.toggle('active', ativo);
+    });
   }
 
   if (gateContinuarBtn) {
@@ -212,6 +294,7 @@ function inicializarGateProjeto() {
   atualizarMensagemGate('Selecione o projeto para liberar o formulario.', 'info');
 
   if (gateProjetoFiltro) {
+    gateProjetoFiltro.value = obterFiltroBuscaInicialGate();
     gateProjetoFiltro.addEventListener('input', () => {
       aplicarFiltroProjetosGate(gateProjetoFiltro.value);
     });
@@ -236,6 +319,8 @@ function inicializarGateProjeto() {
       selecionarProjetoDoGate(gateProjetoSelect.value);
     });
   }
+
+  atualizarLinkVoltarFormulario();
 
   document.addEventListener('click', (event) => {
     const card = event.target.closest('.gate-projeto-card');
@@ -876,3 +961,4 @@ validarDatasNaoFuturas();
 registrarEventoBackend('acesso_pagina');
 ocultarProgressoUpload();
 inicializarGateProjeto();
+atualizarLinkVoltarFormulario();

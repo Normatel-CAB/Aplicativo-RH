@@ -25,8 +25,9 @@
 
     <section class="card rh-list-card">
       <div class="rh-list-actions rh-list-actions--project">
-        <p id="dashboardStatus" class="rh-list-status status-message status-message--info status-toast status-toast-floating">Carregando dashboard...</p>
-        <a href="rh-atestados.html" class="success-link project-back-link">Voltar ao Painel RH</a>
+        <div class="rh-list-btn-group rh-list-btn-group--fixed" aria-label="Ações do dashboard RH">
+          <a id="voltarPainelRhBtn" href="rh-atestados.html" class="success-link rh-action-link-btn">Voltar ao Painel RH</a>
+        </div>
       </div>
 
       <div class="rh-demandas-grid" aria-label="Resumo geral">
@@ -39,7 +40,7 @@
           <strong id="dashHoje" class="rh-demanda-number">--</strong>
         </article>
         <article class="rh-demanda-card">
-          <span class="rh-demanda-label">Ultimos 7 dias</span>
+          <span class="rh-demanda-label">Últimos 7 dias</span>
           <strong id="dashSemana" class="rh-demanda-number">--</strong>
         </article>
         <article class="rh-demanda-card">
@@ -93,6 +94,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
   <script src="firebase-config.js"></script>
-  <script src="rh-demandas.js?v=20260309h"></script>
+  <script src="rh-demandas.js?v=20260309i"></script>
 </body>
 </html>
