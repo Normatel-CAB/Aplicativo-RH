@@ -1236,6 +1236,54 @@ select:focus-visible {
   color: var(--green-900);
 }
 
+.detalhe-top-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -2px 0 10px;
+}
+
+.detalhe-status {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.detalhe-status--feito {
+  color: #14532d;
+  background: #dcfce7;
+  border: 1px solid #86efac;
+}
+
+.detalhe-status--pendente {
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+}
+
+.detalhe-card--feito {
+  border-color: #8fd5a7;
+  background: linear-gradient(160deg, #ffffff 0%, #edf9f1 100%);
+}
+
+.detalhe-marcar-btn {
+  margin-top: 0;
+  min-height: 36px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  box-shadow: none;
+  cursor: pointer;
+  position: relative;
+  z-index: 2;
+}
+
 .detalhe-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1465,6 +1513,93 @@ select:focus-visible {
   margin-bottom: 12px;
 }
 
+.admin-sync-panel {
+  border: 1px solid #c9e7d4;
+  border-radius: 12px;
+  background: linear-gradient(165deg, #ffffff 0%, #f4fbf7 100%);
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.admin-sync-panel.hidden {
+  display: none !important;
+}
+
+.admin-sync-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.admin-sync-actions .btn-aprovar,
+.admin-sync-actions .btn-rejeitar {
+  margin-top: 0;
+  min-width: 120px;
+}
+
+body.dialog-open {
+  overflow: hidden;
+}
+
+.admin-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(10, 27, 17, 0.45);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.admin-dialog {
+  width: min(520px, 100%);
+  border: 1px solid #b9dec5;
+  border-radius: 14px;
+  background: linear-gradient(165deg, #ffffff 0%, #f3faf6 100%);
+  box-shadow: 0 18px 38px rgba(17, 54, 35, 0.24);
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.admin-dialog-title {
+  margin: 0;
+  color: #1b5c35;
+  font-size: 1.06rem;
+}
+
+.admin-dialog-message {
+  margin: 0;
+  color: #2f6d45;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.admin-dialog-input-wrap {
+  display: grid;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.admin-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.admin-dialog-actions .btn-aprovar,
+.admin-dialog-actions .btn-rejeitar {
+  margin-top: 0;
+  min-width: 110px;
+  width: auto;
+  cursor: pointer;
+}
+
 .admin-stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -1503,6 +1638,17 @@ select:focus-visible {
   margin-bottom: 12px;
 }
 
+.usuarios-cadastrados-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.usuarios-cadastrados-header-actions .rh-admin-btn {
+  margin-top: 0;
+  min-width: 140px;
+}
+
 .admin-list-header h2 {
   margin: 0;
   color: var(--green-900);
@@ -1511,6 +1657,89 @@ select:focus-visible {
 
 .admin-list-card {
   min-height: 180px;
+}
+
+.usuarios-cadastrados-filtros {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.usuarios-cadastrados-resumo {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.usuarios-resumo-card {
+  border: 1px solid #c9e7d4;
+  border-radius: 10px;
+  background: #f8fdf9;
+  padding: 10px;
+  display: grid;
+  gap: 2px;
+}
+
+.usuarios-resumo-card span {
+  color: #3b6a51;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.usuarios-resumo-card strong {
+  color: #123b27;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.usuarios-resumo-card--aprovado {
+  background: #f0fdf4;
+  border-color: #86efac;
+}
+
+.usuarios-resumo-card--pendente {
+  background: #fffbeb;
+  border-color: #fcd34d;
+}
+
+.usuarios-resumo-card--rejeitado {
+  background: #fff1f2;
+  border-color: #fda4af;
+}
+
+.usuario-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  width: fit-content;
+}
+
+.usuario-status-chip--aprovado {
+  color: #14532d;
+  background: #dcfce7;
+  border: 1px solid #86efac;
+}
+
+.usuario-status-chip--pendente {
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+}
+
+.usuario-status-chip--rejeitado {
+  color: #9f1239;
+  background: #ffe4e6;
+  border: 1px solid #fda4af;
 }
 
 .admin-usuarios-lista {
@@ -1565,6 +1794,10 @@ select:focus-visible {
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+.usuario-item .usuario-acoes {
+  justify-content: flex-end;
 }
 
 .btn-aprovar,

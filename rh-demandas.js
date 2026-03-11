@@ -23,6 +23,7 @@ let todosRegistros = [];
 let resumoProjetos = [];
 let abaGraficoAtiva = 'projetos';
 let dashboardStatusTimer = null;
+let cancelMonitorAcessoRh = null;
 
 const CLASSES_TIPO_ATESTADO = {
   medico: 'rh-chart-column-bar--medico',
@@ -172,6 +173,44 @@ function erroPermissaoFirestore(error) {
 
 function resolverBackendUrl() {
   return BACKEND_URL;
+}
+
+function forcarLogoutPorRevogacaoAcesso() {
+  localStorage.removeItem('rh_auth_token');
+  localStorage.removeItem('rh_user_id');
+  localStorage.removeItem('rh_user_email');
+  localStorage.removeItem('rh_user_nome');
+  localStorage.removeItem('rh_user_pendente');
+  window.location.href = 'rh-login.html';
+}
+
+function iniciarMonitoramentoAcessoRh() {
+  const email = String(localStorage.getItem('rh_user_email') || '').trim().toLowerCase();
+  if (!email || typeof window?.firebase?.firestore !== 'function') {
+    return;
+  }
+
+  try {
+    cancelMonitorAcessoRh = window.firebase.firestore()
+      .collection('usuarios_rh')
+      .where('email', '==', email)
+      .limit(1)
+      .onSnapshot((snapshot) => {
+        if (!snapshot || snapshot.empty) {
+          forcarLogoutPorRevogacaoAcesso();
+          return;
+        }
+
+        const usuario = snapshot.docs[0].data() || {};
+        const status = String(usuario.status || '').toLowerCase();
+        const aprovado = usuario.aprovado === true || status === 'aprovado';
+        if (!aprovado) {
+          forcarLogoutPorRevogacaoAcesso();
+        }
+      });
+  } catch {
+    // Sem monitoramento em caso de falha de permissao/rede.
+  }
 }
 
 async function requisicaoBackendJson(url, options = {}, tentativas = 2) {
@@ -568,5 +607,6 @@ if (tabTipoBtn) {
 }
 restaurarEstadoDashboardDaUrl();
 atualizarPlaceholderBuscaDashboard();
+iniciarMonitoramentoAcessoRh();
 
 carregarDashboardDemandas();

@@ -172,6 +172,23 @@ async function salvarEnvioNoFirestore(envio) {
   }, { merge: true });
 }
 
+async function atualizarStatusAtendimentoEnvioFirestore(id, atendimentoStatus) {
+  const db = await obterFirestoreObrigatorio();
+  const ref = db.collection(FIRESTORE_COLLECTIONS.envios).doc(String(id));
+  const doc = await ref.get();
+
+  if (!doc.exists) {
+    return false;
+  }
+
+  await ref.set({
+    atendimento_status: atendimentoStatus,
+    atendimento_atualizado_em: new Date().toISOString()
+  }, { merge: true });
+
+  return true;
+}
+
 async function obterFirestoreObrigatorio() {
   const db = await inicializarFirestore();
   if (!db) {
@@ -698,6 +715,52 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    // Atualizar status de atendimento de um envio (feito/pendente)
+    if (pathname.match(/^\/api\/envios\/status\//) && req.method === 'POST') {
+      const id = pathname.split('/').pop();
+
+      if (!id || id.length > 100) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'ID inválido' }));
+        return;
+      }
+
+      let body;
+      try {
+        body = await parseBody(req);
+      } catch (err) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: err.message }));
+        return;
+      }
+
+      const atendimentoStatus = String(body?.atendimento_status || '').trim().toLowerCase();
+      if (!['feito', 'pendente'].includes(atendimentoStatus)) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'atendimento_status deve ser "feito" ou "pendente"' }));
+        return;
+      }
+
+      let atualizado = false;
+      try {
+        atualizado = await atualizarStatusAtendimentoEnvioFirestore(id, atendimentoStatus);
+      } catch (firestoreError) {
+        res.writeHead(503);
+        res.end(JSON.stringify({ error: `Falha ao atualizar status do envio (${firestoreError.message})` }));
+        return;
+      }
+
+      if (!atualizado) {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: 'Envio não encontrado' }));
+        return;
+      }
+
+      res.writeHead(200);
+      res.end(JSON.stringify({ id, atendimento_status: atendimentoStatus, atualizado: true }));
+      return;
+    }
+
     // Proxy de download para contornar CORS na geração de ZIP no frontend
     if (pathname === '/api/arquivos/proxy' && req.method === 'GET') {
       const urlArquivo = String(parsedUrl.query.url || '').trim();
@@ -997,6 +1060,7 @@ server.listen(PORT, () => {
   console.log(`  - GET  /api/envios?limit=100`);
   console.log(`  - GET  /api/arquivos/proxy?url=...&nome=...`);
   console.log(`  - POST /api/envios`);
+  console.log(`  - POST /api/envios/status/:id`);
   console.log(`  - GET  /api/eventos?limit=200`);
   console.log(`  - POST /api/eventos`);
   console.log(`  - GET  /api/usuarios/pendentes`);

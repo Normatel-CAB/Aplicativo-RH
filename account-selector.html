@@ -190,7 +190,7 @@
         }
 
 
-        // Não existe mais requisicaoBackendJson, tudo é Firebase
+            // Fluxo principal é Firebase; backend é fallback para ambientes com regra/rede restritiva.
 
 
         async function verificarUsuarioCadastrado(email) {
@@ -207,6 +207,73 @@
         function erroPermissaoFirestore(erro) {
             const texto = `${erro?.code || ''} ${erro?.message || ''}`.toLowerCase();
             return texto.includes('permission-denied') || texto.includes('missing or insufficient permissions');
+        }
+
+        async function requisicaoBackendJson(url, options = {}, tentativas = 2) {
+            if (!BACKEND_URL) {
+                throw new Error('BACKEND_URL_NOT_CONFIGURED');
+            }
+
+            let ultimaResposta = null;
+
+            for (let i = 0; i <= tentativas; i += 1) {
+                let resposta;
+                try {
+                    resposta = await fetch(url, options);
+                } catch {
+                    if (i === tentativas) {
+                        throw new Error('BACKEND_UNREACHABLE');
+                    }
+                    await new Promise((resolve) => setTimeout(resolve, 250 * (i + 1)));
+                    continue;
+                }
+
+                ultimaResposta = resposta;
+                if (resposta.ok) {
+                    return await resposta.json();
+                }
+
+                const statusRepetivel = resposta.status === 429 || resposta.status >= 500;
+                if (!statusRepetivel || i === tentativas) {
+                    let detalhe = '';
+                    try {
+                        const body = await resposta.json();
+                        detalhe = body?.error || body?.mensagem || '';
+                    } catch {
+                        detalhe = await resposta.text().catch(() => '');
+                    }
+                    throw new Error(`${resposta.status}${detalhe ? ` - ${detalhe}` : ''}`);
+                }
+
+                await new Promise((resolve) => setTimeout(resolve, 250 * (i + 1)));
+            }
+
+            throw new Error(`${ultimaResposta?.status || 'BACKEND_ERROR'}`);
+        }
+
+        async function verificarUsuarioCadastradoNoBackend(email) {
+            const params = new URLSearchParams();
+            params.set('email', String(email || '').trim().toLowerCase());
+            const data = await requisicaoBackendJson(`${BACKEND_URL}/api/usuarios/existe?${params.toString()}`);
+            return {
+                existe: !!data?.existe,
+                aprovado: !!data?.aprovado
+            };
+        }
+
+        async function cadastrarUsuarioNoBackend(email, nome) {
+            const data = await requisicaoBackendJson(`${BACKEND_URL}/api/usuarios`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: String(email || '').trim().toLowerCase(),
+                    nome: String(nome || '').trim()
+                })
+            });
+
+            return {
+                status: data?.status === 'aprovado' ? 'aprovado' : 'pendente'
+            };
         }
 
         function erroPopupBloqueado(erro) {
@@ -228,7 +295,14 @@
                     throw erro;
                 }
 
-                throw new Error('FIRESTORE_PERMISSION_DENIED_LOGIN_CHECK');
+                try {
+                    return await verificarUsuarioCadastradoNoBackend(email);
+                } catch (erroBackend) {
+                    if (String(erroBackend?.message || '').includes('BACKEND_URL_NOT_CONFIGURED')) {
+                        throw new Error('FIRESTORE_PERMISSION_DENIED_LOGIN_CHECK');
+                    }
+                    throw erroBackend;
+                }
             }
         }
 
@@ -272,37 +346,48 @@
 
 
         async function cadastrarUsuario(email, nome) {
-            // Salva usuário no Firestore
-            if (typeof firebase === 'undefined') throw new Error('Firebase não carregado');
-            const snap = await firebase.firestore().collection('usuarios_rh').where('email', '==', email).get();
-            if (!snap.empty) {
-                const docRef = snap.docs[0].ref;
-                const docData = snap.docs[0].data() || {};
-                const statusAtual = String(docData.status || '').toLowerCase();
-                const aprovadoAtual = docData.aprovado === true || statusAtual === 'aprovado';
+            // Salva usuário no Firestore e, se faltar permissão, usa backend como fallback.
+            if (typeof firebase === 'undefined') {
+                return await cadastrarUsuarioNoBackend(email, nome);
+            }
 
-                if (!aprovadoAtual) {
-                    // Reenvia para fila de aprovação caso esteja pendente/rejeitado/inconsistente.
-                    await docRef.set({
-                        email,
-                        nome,
-                        status: 'pendente',
-                        aprovado: false,
-                        atualizado_em: new Date().toISOString()
-                    }, { merge: true });
-                    return { status: 'pendente' };
+            try {
+                const snap = await firebase.firestore().collection('usuarios_rh').where('email', '==', email).get();
+                if (!snap.empty) {
+                    const docRef = snap.docs[0].ref;
+                    const docData = snap.docs[0].data() || {};
+                    const statusAtual = String(docData.status || '').toLowerCase();
+                    const aprovadoAtual = docData.aprovado === true || statusAtual === 'aprovado';
+
+                    if (!aprovadoAtual) {
+                        // Reenvia para fila de aprovação caso esteja pendente/rejeitado/inconsistente.
+                        await docRef.set({
+                            email,
+                            nome,
+                            status: 'pendente',
+                            aprovado: false,
+                            atualizado_em: new Date().toISOString()
+                        }, { merge: true });
+                        return { status: 'pendente' };
+                    }
+
+                    return { status: 'aprovado' };
+                }
+                await firebase.firestore().collection('usuarios_rh').add({
+                    email,
+                    nome,
+                    status: 'pendente',
+                    aprovado: false,
+                    criado_em: new Date().toISOString()
+                });
+                return { status: 'pendente' };
+            } catch (erro) {
+                if (!erroPermissaoFirestore(erro)) {
+                    throw erro;
                 }
 
-                return { status: 'aprovado' };
+                return await cadastrarUsuarioNoBackend(email, nome);
             }
-            await firebase.firestore().collection('usuarios_rh').add({
-                email,
-                nome,
-                status: 'pendente',
-                aprovado: false,
-                criado_em: new Date().toISOString()
-            });
-            return { status: 'pendente' };
         }
 
         function marcarCadastroPendente(email, nome) {

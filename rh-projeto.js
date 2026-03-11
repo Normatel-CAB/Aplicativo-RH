@@ -23,8 +23,12 @@ const BASES_PROJETO = {
 let registrosProjeto = [];
 let registrosProjetoFiltrados = [];
 let downloadMassaEmAndamento = false;
+let atualizandoAtendimento = false;
 let detalhesStatusTimer = null;
 let codigoProjetoAtual = '';
+let todosRegistros = [];
+const ATENDIMENTO_LOCAL_KEY = 'rh_atendimento_status_local';
+let cancelMonitorAcessoRh = null;
 
 async function requisicaoBackendJson(url, options = {}, tentativas = 2) {
   let ultimaResposta = null;
@@ -87,6 +91,44 @@ function listarBackendsCandidatos() {
   }
 
   return [...new Set(urls.filter(Boolean))];
+}
+
+function forcarLogoutPorRevogacaoAcesso() {
+  localStorage.removeItem('rh_auth_token');
+  localStorage.removeItem('rh_user_id');
+  localStorage.removeItem('rh_user_email');
+  localStorage.removeItem('rh_user_nome');
+  localStorage.removeItem('rh_user_pendente');
+  window.location.href = 'rh-login.html';
+}
+
+function iniciarMonitoramentoAcessoRh() {
+  const email = String(localStorage.getItem('rh_user_email') || '').trim().toLowerCase();
+  if (!email || typeof window?.firebase?.firestore !== 'function') {
+    return;
+  }
+
+  try {
+    cancelMonitorAcessoRh = window.firebase.firestore()
+      .collection('usuarios_rh')
+      .where('email', '==', email)
+      .limit(1)
+      .onSnapshot((snapshot) => {
+        if (!snapshot || snapshot.empty) {
+          forcarLogoutPorRevogacaoAcesso();
+          return;
+        }
+
+        const usuario = snapshot.docs[0].data() || {};
+        const status = String(usuario.status || '').toLowerCase();
+        const aprovado = usuario.aprovado === true || status === 'aprovado';
+        if (!aprovado) {
+          forcarLogoutPorRevogacaoAcesso();
+        }
+      });
+  } catch {
+    // Sem monitoramento em caso de falha de permissão/rede.
+  }
 }
 
 async function carregarEnviosComFallback() {
@@ -357,9 +399,50 @@ function criarDetalheItem(label, valor) {
   return `<div class="detalhe-item"><span>${label}</span><strong>${valor || '-'}</strong></div>`;
 }
 
+function obterStatusAtendimento(record) {
+  return String(record?.atendimento_status || '').trim().toLowerCase() === 'feito' ? 'feito' : 'pendente';
+}
+
+function rotuloStatusAtendimento(status) {
+  return status === 'feito' ? 'Feito' : 'Pendente';
+}
+
+function classeStatusAtendimento(status) {
+  return status === 'feito' ? 'detalhe-status--feito' : 'detalhe-status--pendente';
+}
+
+function carregarStatusAtendimentoLocal() {
+  try {
+    const bruto = localStorage.getItem(ATENDIMENTO_LOCAL_KEY) || '{}';
+    const parsed = JSON.parse(bruto);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function salvarStatusAtendimentoLocal(registroId, atendimentoStatus) {
+  const mapa = carregarStatusAtendimentoLocal();
+  mapa[String(registroId)] = String(atendimentoStatus || '').trim().toLowerCase() === 'feito' ? 'feito' : 'pendente';
+  localStorage.setItem(ATENDIMENTO_LOCAL_KEY, JSON.stringify(mapa));
+}
+
+function aplicarStatusAtendimentoLocal(registros) {
+  const mapa = carregarStatusAtendimentoLocal();
+  registros.forEach((registro) => {
+    const id = String(registro?.id || '');
+    if (!id) return;
+    if (mapa[id] === 'feito' || mapa[id] === 'pendente') {
+      registro.atendimento_status = mapa[id];
+    }
+  });
+}
+
 function criarCardRegistro(record) {
   const card = document.createElement('article');
-  card.className = 'detalhe-card';
+  const statusAtendimento = obterStatusAtendimento(record);
+  card.className = `detalhe-card ${statusAtendimento === 'feito' ? 'detalhe-card--feito' : ''}`;
+  card.dataset.registroId = String(record?.id || '');
 
   const arquivos = Array.isArray(record.arquivos)
     ? record.arquivos.map((arquivo) => (typeof arquivo === 'string' ? { url: arquivo } : arquivo))
@@ -379,6 +462,10 @@ function criarCardRegistro(record) {
 
   card.innerHTML = `
     <h3>${record.nome || 'Sem nome informado'}</h3>
+    <div class="detalhe-top-actions">
+      <span class="detalhe-status ${classeStatusAtendimento(statusAtendimento)}">${rotuloStatusAtendimento(statusAtendimento)}</span>
+      <button type="button" class="detalhe-marcar-btn" data-action="toggle-feito">${statusAtendimento === 'feito' ? 'Desmarcar' : 'Marcar como feito'}</button>
+    </div>
     <div class="detalhe-grid">
       ${criarDetalheItem('Função', record.funcao)}
       ${criarDetalheItem('Projeto', record.projeto)}
@@ -396,6 +483,111 @@ function criarCardRegistro(record) {
   `;
 
   return card;
+}
+
+function atualizarStatusLocalRegistro(registroId, atendimentoStatus) {
+  const normalizado = String(atendimentoStatus || '').trim().toLowerCase() === 'feito' ? 'feito' : 'pendente';
+
+  const atualizarLista = (lista) => {
+    const idx = lista.findIndex((item) => String(item?.id || '') === String(registroId || ''));
+    if (idx >= 0) {
+      lista[idx].atendimento_status = normalizado;
+      lista[idx].atendimento_atualizado_em = new Date().toISOString();
+    }
+  };
+
+  atualizarLista(todosRegistros);
+  atualizarLista(registrosProjeto);
+  atualizarLista(registrosProjetoFiltrados);
+  salvarStatusAtendimentoLocal(registroId, normalizado);
+}
+
+async function atualizarStatusAtendimentoNoBackend(registroId, atendimentoStatus) {
+  const candidatos = listarBackendsCandidatos();
+  if (!candidatos.length) {
+    throw new Error('BACKEND_NOT_AVAILABLE');
+  }
+
+  for (const backendBase of candidatos) {
+    try {
+      await requisicaoBackendJson(`${backendBase}/api/envios/status/${encodeURIComponent(registroId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ atendimento_status: atendimentoStatus })
+      });
+      return;
+    } catch (erro) {
+      const msg = String(erro?.message || '');
+      if (msg.startsWith('404')) {
+        throw new Error('BACKEND_STATUS_ROUTE_NOT_FOUND');
+      }
+      // tenta próximo backend
+    }
+  }
+
+  throw new Error('BACKEND_STATUS_UPDATE_FAILED');
+}
+
+async function atualizarStatusAtendimentoNoFirestore(registroId, atendimentoStatus) {
+  await window.firebase.firestore().collection('envios_atestados').doc(String(registroId)).set({
+    atendimento_status: atendimentoStatus,
+    atendimento_atualizado_em: new Date().toISOString()
+  }, { merge: true });
+}
+
+async function marcarRegistroComoFeito(registroId, atendimentoStatus) {
+  if (!registroId) {
+    setDetalhesStatus('Não foi possível atualizar: registro sem identificação.', 'error');
+    return;
+  }
+
+  if (atualizandoAtendimento) {
+    return;
+  }
+
+  atualizandoAtendimento = true;
+  const statusDestino = atendimentoStatus === 'feito' ? 'feito' : 'pendente';
+
+  try {
+    try {
+      await atualizarStatusAtendimentoNoBackend(registroId, statusDestino);
+    } catch {
+      await atualizarStatusAtendimentoNoFirestore(registroId, statusDestino);
+    }
+
+    atualizarStatusLocalRegistro(registroId, statusDestino);
+    aplicarFiltros();
+    setDetalhesStatus(statusDestino === 'feito' ? 'Atestado marcado como feito.' : 'Atestado marcado como pendente.', 'success');
+  } catch (error) {
+    const msg = String(error?.message || '');
+    if (msg.includes('BACKEND_STATUS_ROUTE_NOT_FOUND') || msg.includes('BACKEND_STATUS_UPDATE_FAILED') || msg.includes('permission-denied') || msg.includes('insufficient permissions')) {
+      // Fallback local para evitar travar o atendimento quando backend/firestore não estiverem disponíveis.
+      atualizarStatusLocalRegistro(registroId, statusDestino);
+      aplicarFiltros();
+      return;
+    }
+
+    setDetalhesStatus(`Não foi possível atualizar o status: ${error?.message || 'falha desconhecida'}`, 'error');
+  } finally {
+    atualizandoAtendimento = false;
+  }
+}
+
+function ativarAcoesAtendimentoNosCards() {
+  if (!detalhesContainer) return;
+
+  detalhesContainer.addEventListener('click', async (event) => {
+    const botaoAtendimento = event.target.closest('button.detalhe-marcar-btn[data-action="toggle-feito"]');
+    if (!botaoAtendimento) return;
+
+    event.preventDefault();
+    const card = botaoAtendimento.closest('.detalhe-card');
+    const registroId = String(card?.dataset?.registroId || '').trim();
+    const registro = registrosProjeto.find((item) => String(item?.id || '') === registroId);
+    const statusAtual = obterStatusAtendimento(registro);
+    const statusDestino = statusAtual === 'feito' ? 'pendente' : 'feito';
+    await marcarRegistroComoFeito(registroId, statusDestino);
+  });
 }
 
 async function baixarArquivoComNome(urlArquivo, nomeDownload) {
@@ -638,7 +830,6 @@ function configurarEventosFiltros() {
   }
 }
 
-let todosRegistros = [];
 async function carregarDetalhesProjeto() {
   const params = new URLSearchParams(window.location.search);
   const codigoProjeto = params.get('projeto') || '';
@@ -658,6 +849,7 @@ async function carregarDetalhesProjeto() {
   try {
     // Busca no Firestore e faz fallback para backend quando necessário.
     todosRegistros = await carregarEnviosComFallback();
+    aplicarStatusAtendimentoLocal(todosRegistros);
     const padraoProjeto = new RegExp(`\\b${codigoProjeto}\\b`);
 
     registrosProjeto = todosRegistros.filter((registro) => padraoProjeto.test(String(registro?.projeto || '')));
@@ -681,6 +873,8 @@ async function carregarDetalhesProjeto() {
 }
 
 ativarDownloadComNome();
+ativarAcoesAtendimentoNosCards();
+iniciarMonitoramentoAcessoRh();
 configurarLinkVoltar();
 configurarEventosFiltros();
 carregarDetalhesProjeto();

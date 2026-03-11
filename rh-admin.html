@@ -22,9 +22,23 @@
     <section class="card admin-overview-card">
       <div class="admin-top-actions">
         <div class="rh-list-btn-group">
+          <button type="button" class="rh-admin-btn" onclick="sincronizarUsuarioPorEmail()">Adicionar usuário manualmente</button>
           <button type="button" class="rh-admin-btn" onclick="voltarParaPainel()">Voltar ao Painel RH</button>
         </div>
       </div>
+
+      <section id="sincronizarUsuarioPanel" class="admin-sync-panel hidden" aria-label="Adicionar usuário manualmente" aria-hidden="true">
+        <label for="syncUsuarioEmail">E-mail da colaboradora</label>
+        <input id="syncUsuarioEmail" type="email" placeholder="nome.sobrenome@empresa.com" autocomplete="email" />
+
+        <label for="syncUsuarioNome">Nome da colaboradora (opcional)</label>
+        <input id="syncUsuarioNome" type="text" placeholder="Ex.: Maria Silva" autocomplete="name" />
+
+        <div class="admin-sync-actions">
+          <button type="button" class="btn-aprovar" onclick="confirmarSincronizacaoUsuario()">Continuar</button>
+          <button type="button" class="btn-rejeitar" onclick="cancelarSincronizacaoUsuario()">Cancelar</button>
+        </div>
+      </section>
 
       <div class="admin-stats-grid">
         <article class="admin-stat-card">
@@ -46,6 +60,59 @@
         <div class="status-vazio">Nenhum usuário pendente de aprovação</div>
       </div>
     </section>
+
+    <section class="card admin-list-card">
+      <div class="admin-list-header">
+        <h2>Colaboradores cadastrados</h2>
+        <div class="usuarios-cadastrados-header-actions">
+          <button type="button" id="togglePainelColaboradoresBtn" class="rh-admin-btn">Mostrar colaboradores</button>
+        </div>
+      </div>
+
+      <div id="painelColaboradoresConteudo" class="hidden" aria-hidden="true">
+        <p class="rh-project-search-info">Use a busca e o filtro para localizar rapidamente colaboradoras e colaboradores por status.</p>
+
+        <div class="usuarios-cadastrados-header-actions">
+          <button type="button" id="toggleUsuariosCadastradosBtn" class="rh-admin-btn hidden">Mostrar todos</button>
+          <button type="button" id="atualizarUsuariosCadastradosBtn" class="rh-admin-btn">Atualizar lista</button>
+        </div>
+
+        <div class="usuarios-cadastrados-filtros" aria-label="Filtros de colaboradores cadastrados">
+          <label for="buscaUsuariosCadastrados">Buscar por nome ou e-mail</label>
+          <input id="buscaUsuariosCadastrados" type="text" placeholder="Digite nome ou e-mail" autocomplete="off" />
+
+          <label for="filtroStatusUsuariosCadastrados">Filtrar por status</label>
+          <select id="filtroStatusUsuariosCadastrados">
+            <option value="">Todos</option>
+            <option value="aprovado">Aprovado</option>
+            <option value="pendente">Pendente</option>
+            <option value="rejeitado">Rejeitado</option>
+          </select>
+        </div>
+
+        <div class="usuarios-cadastrados-resumo" aria-label="Resumo de colaboradores cadastrados">
+          <article class="usuarios-resumo-card">
+            <span>Total</span>
+            <strong id="resumoUsuariosTotal">0</strong>
+          </article>
+          <article class="usuarios-resumo-card usuarios-resumo-card--aprovado">
+            <span>Aprovados</span>
+            <strong id="resumoUsuariosAprovados">0</strong>
+          </article>
+          <article class="usuarios-resumo-card usuarios-resumo-card--pendente">
+            <span>Pendentes</span>
+            <strong id="resumoUsuariosPendentes">0</strong>
+          </article>
+          <article class="usuarios-resumo-card usuarios-resumo-card--rejeitado">
+            <span>Rejeitados</span>
+            <strong id="resumoUsuariosRejeitados">0</strong>
+          </article>
+        </div>
+
+        <p id="usuariosCadastradosStatus" class="status-message status-message--info status-toast">Carregando colaboradores cadastrados...</p>
+        <div id="listaUsuariosCadastrados" class="admin-usuarios-lista"></div>
+      </div>
+    </section>
   </main>
 
   <!-- Firebase SDKs -->
@@ -55,6 +122,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
   <!-- Configuração do Firebase -->
   <script src="firebase-config.js"></script>
-  <script src="rh-admin.js?v=20260306a"></script>
+  <script src="rh-admin.js?v=20260310n"></script>
 </body>
 </html>
