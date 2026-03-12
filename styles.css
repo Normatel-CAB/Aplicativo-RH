@@ -880,7 +880,10 @@ select:focus-visible {
 
 .detalhes-filtros-acoes {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .detalhes-download-massa-btn {
@@ -1106,7 +1109,37 @@ select:focus-visible {
   border-radius: 999px;
   margin-top: 10px;
   background: linear-gradient(90deg, #64c350, #2f9e57);
-  opacity: 0.7;
+}
+
+.detalhes-status-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detalhes-status-btn {
+  margin-top: 0;
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid #b6d9c3;
+  background: #ffffff;
+  color: #1f603a;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.detalhes-status-btn:hover {
+  border-color: #88c69e;
+  background: #f3fbf6;
+}
+
+.detalhes-status-btn.is-active {
+  border-color: #2f9e57;
+  background: linear-gradient(140deg, #2f9e57 0%, #1f7a42 100%);
+  color: #ffffff;
+  box-shadow: 0 8px 16px rgba(31, 122, 66, 0.22);
 }
 
 .projetos-cards {
@@ -1244,6 +1277,12 @@ select:focus-visible {
   margin: -2px 0 10px;
 }
 
+.detalhe-top-actions-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .detalhe-status {
   display: inline-flex;
   align-items: center;
@@ -1282,6 +1321,28 @@ select:focus-visible {
   cursor: pointer;
   position: relative;
   z-index: 2;
+}
+
+.detalhe-excluir-btn {
+  margin-top: 0;
+  min-height: 32px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 214, 214, 0.34);
+  background: linear-gradient(135deg, #d14343, #b91c1c);
+  color: #ffffff;
+  font-size: 0;
+  font-weight: 700;
+  cursor: pointer;
+  position: relative;
+  z-index: 2;
+}
+
+.detalhe-excluir-btn--icon span {
+  font-size: 0.95rem;
+  line-height: 1;
 }
 
 .detalhe-grid {
@@ -2175,6 +2236,16 @@ body.dialog-open {
 
   .detalhes-filtros-acoes {
     justify-content: stretch;
+  }
+
+  .detalhes-status-toggle {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .detalhes-status-btn {
+    width: 100%;
   }
 
   .detalhes-download-massa-btn {
