@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/api",
+      "destination": "https://us-central1-normatel-rh.cloudfunctions.net/api"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "https://us-central1-normatel-rh.cloudfunctions.net/api/:path*"
+    }
+  ]
+}

@@ -3,7 +3,37 @@ const usuariosPendentes = document.getElementById('usuariosPendentes');
 const totalPendentes = document.getElementById('totalPendentes');
 const voltarPainelBtn = document.getElementById('voltarPainelBtn');
 const sairRhBtn = document.getElementById('sairRhBtn');
-const BACKEND_URL = 'http://localhost:3001';
+const DEFAULT_REMOTE_BACKEND_URL = '';
+
+function resolverBackendUrl() {
+  const valorConfigurado = String(localStorage.getItem('rh_backend_url') || '').trim();
+
+  if (valorConfigurado) {
+    try {
+      const url = new URL(valorConfigurado);
+      const hostLocal = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+      if (!hostLocal && url.protocol === 'http:') {
+        url.protocol = 'https:';
+      }
+      return url.toString().replace(/\/+$/, '');
+    } catch {
+      return valorConfigurado.replace(/\/+$/, '');
+    }
+  }
+
+  const host = window.location.hostname;
+  if (host === 'localhost' || host === '127.0.0.1') {
+    return 'http://localhost:3001';
+  }
+
+  if (window.__RH_BACKEND_URL__) {
+    return String(window.__RH_BACKEND_URL__).trim().replace(/\/+$/, '');
+  }
+
+  return DEFAULT_REMOTE_BACKEND_URL;
+}
+
+const BACKEND_URL = resolverBackendUrl();
 let usuariosStatusTimer = null;
 
 function registrarEventoBackend(acao, detalhes = {}) {

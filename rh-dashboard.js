@@ -4,6 +4,7 @@ let tabelaWrapper = null;
 let tabelaBody = null;
 let sairRhBtn = null;
 let gerenciarUsuariosBtn = null;
+let usuarioLogadoInfo = null;
 let projetoCards = [];
 let listaStatusTimer = null;
 
@@ -16,6 +17,7 @@ function inicializarElementosDom() {
   tabelaBody = document.getElementById('atestadosBody');
   sairRhBtn = document.getElementById('sairRhBtn');
   gerenciarUsuariosBtn = document.getElementById('gerenciarUsuariosBtn');
+  usuarioLogadoInfo = document.getElementById('usuarioLogadoInfo');
   projetoCards = Array.from(document.querySelectorAll('.projeto-card'));
   
   console.log('✅ Elementos DOM inicializados:', {
@@ -24,8 +26,18 @@ function inicializarElementosDom() {
     tabelaBody: !!tabelaBody,
     sairRhBtn: !!sairRhBtn,
     gerenciarUsuariosBtn: !!gerenciarUsuariosBtn,
+    usuarioLogadoInfo: !!usuarioLogadoInfo,
     projetoCards: projetoCards.length
   });
+}
+
+function atualizarUsuarioLogado() {
+  if (!usuarioLogadoInfo) return;
+
+  const nome = localStorage.getItem('rh_user_nome') || '';
+  const email = localStorage.getItem('rh_user_email') || '';
+  const texto = nome || email || '-';
+  usuarioLogadoInfo.textContent = `Usuário: ${texto}`;
 }
 
 function setListaStatus(texto, tipo = 'info') {
@@ -336,6 +348,7 @@ function adicionarEventListeners() {
 function inicializarDashboard() {
   console.log('✅ Inicializando dashboard RH');
   inicializarElementosDom();
+  atualizarUsuarioLogado();
   ativarDownloadComNome();
   if (tabelaWrapper) {
     tabelaWrapper.classList.add('hidden');

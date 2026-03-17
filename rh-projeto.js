@@ -14,7 +14,8 @@ const BASES_PROJETO = {
   '736': 'Base Imbetiba',
   '737': 'Base Imboassica',
   '743': 'Bases: Cabiunas, Severina e Barra do Furado',
-  '741': 'Bases: UTE, Áreas Externa e Tapera'
+  '741': 'Bases: UTE, Áreas Externa e Tapera',
+  '744': 'Apoio Macaé'
 };
 
 let registrosProjeto = [];
