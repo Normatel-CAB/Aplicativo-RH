@@ -7,13 +7,23 @@ const dataInicio = document.getElementById('dataInicio');
 const dataFim = document.getElementById('dataFim');
 const dias = document.getElementById('dias');
 const arquivos = document.getElementById('arquivos');
+const projetoSelect = document.getElementById('projeto');
 const mensagem = document.getElementById('mensagem');
 const uploadProgressWrapper = document.getElementById('uploadProgressWrapper');
 const uploadProgressBar = document.getElementById('uploadProgressBar');
 const uploadProgressText = document.getElementById('uploadProgressText');
 const botaoEnviar = form.querySelector('button[type="submit"]');
 const rhAccessBtn = document.getElementById('rhAccessBtn');
+const gateProjetoSelect = document.getElementById('gateProjeto');
+const gateProjetoFiltro = document.getElementById('gateProjetoFiltro');
+const gateProjetoFiltroInfo = document.getElementById('gateProjetoFiltroInfo');
+const gateProjetoCards = Array.from(document.querySelectorAll('.gate-projeto-card'));
+const gateContinuarBtn = document.getElementById('gateContinuarBtn');
+const projectGateCard = document.getElementById('projectGateCard');
+const projectGateInfo = document.getElementById('projectGateInfo');
 let mensagemStatusTimer = null;
+let gateProjetoInicializado = false;
+let projetoSelecionadoNoGate = '';
 
 
 
@@ -21,6 +31,303 @@ let mensagemStatusTimer = null;
 const MS_POR_DIA = 24 * 60 * 60 * 1000;
 const MAX_LADO_IMAGEM_PDF = 1600;
 const QUALIDADE_JPEG_PDF = 0.82;
+const PROJETO_PRESELECIONADO_KEY = 'rh_projeto_preselecionado';
+const GATE_FILTRO_BUSCA_KEY = 'rh_gate_filtro_busca';
+const FORMULARIO_PAGE_PATH = 'formulario.html';
+
+function normalizarProjeto(valor) {
+  return String(valor || '').trim();
+}
+
+function normalizarTextoBusca(valor) {
+  return String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function obterValorParamUrl(nomeParam) {
+  try {
+    const url = new URL(window.location.href);
+    return String(url.searchParams.get(nomeParam) || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+function atualizarParamUrlSemRecarregar(nomeParam, valorParam) {
+  try {
+    const url = new URL(window.location.href);
+    const valor = String(valorParam || '').trim();
+    if (valor) {
+      url.searchParams.set(nomeParam, valor);
+    } else {
+      url.searchParams.delete(nomeParam);
+    }
+
+    const novaUrl = `${url.pathname}${url.search}${url.hash}`;
+    window.history.replaceState({}, '', novaUrl);
+  } catch {
+    // Ignora falhas de parse de URL para nao afetar fluxo principal.
+  }
+}
+
+function obterFiltroBuscaInicialGate() {
+  const buscaUrl = obterValorParamUrl('busca');
+  const buscaLocal = String(localStorage.getItem(GATE_FILTRO_BUSCA_KEY) || '').trim();
+  return buscaUrl || buscaLocal;
+}
+
+function atualizarEstadoNavegacaoGate(projeto = '', busca = '') {
+  atualizarParamUrlSemRecarregar('projeto', normalizarProjeto(projeto));
+  atualizarParamUrlSemRecarregar('busca', String(busca || '').trim());
+}
+
+function atualizarMensagemGate(texto, tipo = 'info') {
+  if (!projectGateInfo) return;
+
+  projectGateInfo.textContent = texto;
+  projectGateInfo.classList.remove('status-message--info', 'status-message--success', 'status-message--error');
+  if (tipo === 'error') {
+    projectGateInfo.classList.add('status-message--error');
+  } else if (tipo === 'success') {
+    projectGateInfo.classList.add('status-message--success');
+  } else {
+    projectGateInfo.classList.add('status-message--info');
+  }
+}
+
+function bloquearCampoProjeto(valorProjeto) {
+  const valor = normalizarProjeto(valorProjeto);
+  if (!projetoSelect || !valor) return;
+
+  projetoSelect.value = valor;
+  projetoSelect.disabled = true;
+  projetoSelect.classList.add('is-locked');
+  projetoSelect.required = false;
+}
+
+function obterProjetoSelecionadoInicial() {
+  let projetoDaUrl = '';
+  try {
+    const url = new URL(window.location.href);
+    projetoDaUrl = normalizarProjeto(url.searchParams.get('projeto'));
+  } catch {
+    projetoDaUrl = '';
+  }
+
+  const projetoLocal = normalizarProjeto(localStorage.getItem(PROJETO_PRESELECIONADO_KEY));
+  return projetoDaUrl || projetoLocal;
+}
+
+function redirecionarParaFormularioComProjeto(valorProjeto) {
+  const valor = normalizarProjeto(valorProjeto);
+  if (!valor) {
+    atualizarMensagemGate('Selecione um projeto para continuar.', 'error');
+    return;
+  }
+
+  localStorage.setItem(PROJETO_PRESELECIONADO_KEY, valor);
+  const params = new URLSearchParams();
+  params.set('projeto', valor);
+  params.set('origem', 'index.html');
+
+  const buscaAtual = String(gateProjetoFiltro?.value || '').trim();
+  if (buscaAtual) {
+    params.set('busca', buscaAtual);
+    localStorage.setItem(GATE_FILTRO_BUSCA_KEY, buscaAtual);
+  }
+
+  const destino = `${FORMULARIO_PAGE_PATH}?${params.toString()}`;
+  window.location.href = destino;
+}
+
+function liberarFormularioComProjeto(valorProjeto) {
+  const valor = normalizarProjeto(valorProjeto);
+  if (!valor) {
+    atualizarMensagemGate('Selecione um projeto valido para continuar.', 'error');
+    return;
+  }
+
+  bloquearCampoProjeto(valor);
+  localStorage.setItem(PROJETO_PRESELECIONADO_KEY, valor);
+
+  gateProjetoCards.forEach((card) => {
+    const ativo = normalizarProjeto(card.dataset.projeto) === valor;
+    card.classList.toggle('active', ativo);
+  });
+
+  form.classList.remove('hidden');
+  if (projectGateCard) {
+    projectGateCard.classList.add('hidden');
+  }
+
+  definirMensagemStatus(`Projeto selecionado: ${valor}. Campo projeto bloqueado para envio.`, 'success');
+}
+
+function selecionarProjetoDoGate(valorProjeto) {
+  const valor = normalizarProjeto(valorProjeto);
+  if (!valor) {
+    atualizarMensagemGate('Selecione um projeto para continuar.', 'error');
+    return;
+  }
+
+  redirecionarParaFormularioComProjeto(valor);
+}
+
+function atualizarInfoFiltroProjetos(totalVisiveis, totalProjetos, termo) {
+  if (!gateProjetoFiltroInfo) return;
+
+  const termoNormalizado = normalizarProjeto(termo);
+  if (!termoNormalizado) {
+    gateProjetoFiltroInfo.textContent = 'Mostrando todos os projetos.';
+    return;
+  }
+
+  gateProjetoFiltroInfo.textContent = `${totalVisiveis} de ${totalProjetos} projeto(s) encontrado(s) para "${termoNormalizado}".`;
+}
+
+function aplicarFiltroProjetosGate(termoBusca = '') {
+  if (!gateProjetoCards.length) return;
+
+  const termo = normalizarTextoBusca(termoBusca);
+  const termos = termo ? termo.split(/\s+/).filter(Boolean) : [];
+  const termoOriginal = String(termoBusca || '').trim();
+  let visiveis = 0;
+
+  gateProjetoCards.forEach((card) => {
+    const projeto = normalizarTextoBusca(card.dataset.projeto);
+    const deveMostrar = !termos.length || termos.every((parte) => projeto.includes(parte));
+    card.classList.toggle('hidden', !deveMostrar);
+    card.setAttribute('aria-hidden', deveMostrar ? 'false' : 'true');
+    if (deveMostrar) visiveis += 1;
+  });
+
+  atualizarInfoFiltroProjetos(visiveis, gateProjetoCards.length, termoBusca);
+  if (termoOriginal) {
+    localStorage.setItem(GATE_FILTRO_BUSCA_KEY, termoOriginal);
+  } else {
+    localStorage.removeItem(GATE_FILTRO_BUSCA_KEY);
+  }
+
+  atualizarEstadoNavegacaoGate(projetoSelecionadoNoGate, termoOriginal);
+}
+
+function atualizarLinkVoltarFormulario() {
+  const backLink = document.querySelector('.form-back-btn');
+  if (!backLink) return;
+
+  const params = new URLSearchParams();
+  const projeto = normalizarProjeto(projetoSelecionadoNoGate || projetoSelect?.value || localStorage.getItem(PROJETO_PRESELECIONADO_KEY));
+  const busca = String(obterValorParamUrl('busca') || localStorage.getItem(GATE_FILTRO_BUSCA_KEY) || '').trim();
+
+  if (projeto) {
+    params.set('projeto', projeto);
+  }
+  if (busca) {
+    params.set('busca', busca);
+  }
+
+  backLink.href = `index.html${params.toString() ? `?${params.toString()}` : ''}`;
+}
+
+function inicializarGateProjeto() {
+  if (gateProjetoInicializado || !projetoSelect || !form) {
+    return;
+  }
+  gateProjetoInicializado = true;
+
+  const gateDisponivel = Boolean(projectGateCard || gateProjetoSelect || gateProjetoCards.length);
+  const projetoInicial = obterProjetoSelecionadoInicial();
+
+  if (!gateDisponivel) {
+    if (!projetoInicial) {
+      window.location.href = 'index.html';
+      return;
+    }
+
+    if (Array.from(projetoSelect.options).some((opt) => opt.value === projetoInicial)) {
+      liberarFormularioComProjeto(projetoInicial);
+      return;
+    }
+
+    window.location.href = 'index.html';
+    return;
+  }
+
+  if (projectGateCard) {
+    projectGateCard.classList.remove('hidden');
+  }
+  form.classList.add('hidden');
+
+  const projetoSalvo = projetoInicial;
+  if (projetoSalvo && gateProjetoSelect) {
+    const projetoValidoNoSelect = Array.from(gateProjetoSelect.options).some((opt) => opt.value === projetoSalvo);
+    if (projetoValidoNoSelect) {
+      gateProjetoSelect.value = projetoSalvo;
+      projetoSelecionadoNoGate = projetoSalvo;
+      atualizarEstadoNavegacaoGate(projetoSelecionadoNoGate, obterFiltroBuscaInicialGate());
+    }
+  }
+
+  if (projetoSelecionadoNoGate) {
+    gateProjetoCards.forEach((card) => {
+      const ativo = normalizarProjeto(card.dataset.projeto) === projetoSelecionadoNoGate;
+      card.classList.toggle('active', ativo);
+    });
+  }
+
+  if (gateContinuarBtn) {
+    const projetoInicial = normalizarProjeto(projetoSelecionadoNoGate || gateProjetoSelect?.value);
+    gateContinuarBtn.disabled = !projetoInicial;
+    if (projetoInicial) {
+      gateContinuarBtn.dataset.projetoSelecionado = projetoInicial;
+    }
+    gateContinuarBtn.addEventListener('click', () => {
+      const projeto = normalizarProjeto(gateContinuarBtn.dataset.projetoSelecionado || projetoSelecionadoNoGate || gateProjetoSelect?.value);
+      redirecionarParaFormularioComProjeto(projeto);
+    });
+  }
+
+  atualizarMensagemGate('Selecione o projeto para liberar o formulario.', 'info');
+
+  if (gateProjetoFiltro) {
+    gateProjetoFiltro.value = obterFiltroBuscaInicialGate();
+    gateProjetoFiltro.addEventListener('input', () => {
+      aplicarFiltroProjetosGate(gateProjetoFiltro.value);
+    });
+    aplicarFiltroProjetosGate(gateProjetoFiltro.value);
+  }
+
+  gateProjetoCards.forEach((card) => {
+    card.addEventListener('click', () => {
+      selecionarProjetoDoGate(card.dataset.projeto);
+    });
+
+    card.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        selecionarProjetoDoGate(card.dataset.projeto);
+      }
+    });
+  });
+
+  if (gateProjetoSelect) {
+    gateProjetoSelect.addEventListener('change', () => {
+      selecionarProjetoDoGate(gateProjetoSelect.value);
+    });
+  }
+
+  atualizarLinkVoltarFormulario();
+
+  document.addEventListener('click', (event) => {
+    const card = event.target.closest('.gate-projeto-card');
+    if (!card) return;
+    selecionarProjetoDoGate(card.dataset.projeto);
+  });
+}
 
 // Função para registrar eventos no Firestore (opcional)
 async function registrarEventoBackend(acao, detalhes = {}) {
@@ -285,9 +592,18 @@ function ocultarProgressoUpload() {
   uploadProgressWrapper.classList.add('hidden');
 }
 
-function uploadComProgresso(storageRef, blob, bytesTransferidosPorArquivo, indiceArquivo, totalBytes) {
+
+function uploadComProgresso(storageRef, blob, bytesTransferidosPorArquivo, indiceArquivo, totalBytes, nomeArquivoDownload = 'arquivo.pdf') {
   return new Promise((resolve, reject) => {
-    const uploadTask = storageRef.put(blob, { contentType: 'application/pdf' });
+    const nomeSeguroHeader = String(nomeArquivoDownload || 'arquivo.pdf')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9._ -]/g, '_');
+
+    const uploadTask = storageRef.put(blob, {
+      contentType: 'application/pdf',
+      contentDisposition: `attachment; filename="${nomeSeguroHeader}"`
+    });
 
     uploadTask.on('state_changed', (snapshot) => {
       bytesTransferidosPorArquivo[indiceArquivo] = snapshot.bytesTransferred;
@@ -501,17 +817,32 @@ form.addEventListener('submit', async (event) => {
 
   if (!form.checkValidity()) {
     form.reportValidity();
+    definirMensagemStatus('Revise os campos obrigatórios antes de enviar.', 'error');
     definirEstadoEnvio(false);
     return;
   }
 
   if (!window.jspdf) {
+    definirMensagemStatus('Falha ao carregar a biblioteca de PDF. Atualize a página.', 'error');
     definirEstadoEnvio(false);
     return;
   }
 
   const listaArquivos = Array.from(arquivos.files || []);
   if (!listaArquivos.length) {
+    definirMensagemStatus('Selecione pelo menos um arquivo para enviar.', 'error');
+    definirEstadoEnvio(false);
+    return;
+  }
+
+  if (!window.storage || !window.db) {
+    definirMensagemStatus('Firebase não inicializado. Atualize a página e tente novamente.', 'error');
+    definirEstadoEnvio(false);
+    return;
+  }
+
+  if (!normalizarProjeto(projetoSelect?.value)) {
+    definirMensagemStatus('Selecione o projeto antes de enviar o formulario.', 'error');
     definirEstadoEnvio(false);
     return;
   }
@@ -536,6 +867,7 @@ form.addEventListener('submit', async (event) => {
 
     if (naoSuportados.length) {
       ocultarProgressoUpload();
+      definirMensagemStatus(`Arquivo(s) não suportado(s): ${naoSuportados.join(', ')}`, 'error');
       definirEstadoEnvio(false);
       return;
     }
@@ -565,12 +897,7 @@ form.addEventListener('submit', async (event) => {
     }
 
     // Verifica se o usuário está autenticado antes de qualquer operação sensível
-    const user = window.auth && window.auth.currentUser;
-    if (!user) {
-      ocultarProgressoUpload();
-      definirEstadoEnvio(false);
-      return;
-    }
+    // Fluxo público: o envio não depende de sessão Firebase Auth.
 
     atualizarProgressoUpload(5, '5%');
 
@@ -586,7 +913,7 @@ form.addEventListener('submit', async (event) => {
           : nomePdfPadrao;
 
         const storageRef = window.storage.ref(`atestados/${timestampBase}_${indice + 1}_${nomeArquivo}`);
-        const url = await uploadComProgresso(storageRef, convertido.blob, bytesTransferidosPorArquivo, indice, totalBytes);
+        const url = await uploadComProgresso(storageRef, convertido.blob, bytesTransferidosPorArquivo, indice, totalBytes, nomeArquivo);
 
         return {
           nome: nomeArquivo,
@@ -600,7 +927,7 @@ form.addEventListener('submit', async (event) => {
     const dadosEnvio = {
       nome: document.getElementById('nome').value.trim(),
       funcao: document.getElementById('funcao').value.trim(),
-      projeto: document.getElementById('projeto').value,
+      projeto: projetoSelect.value,
       tipo_atestado: tipoAtestado.value,
       horas_comparecimento: horasInput.value ? String(Number(horasInput.value)) : '',
       data_inicio: dataInicioISO,
@@ -619,6 +946,12 @@ form.addEventListener('submit', async (event) => {
   } catch (error) {
     console.error('Erro ao enviar atestado:', error);
     ocultarProgressoUpload();
+    const textoErro = `${error?.code || ''} ${error?.message || ''}`.toLowerCase();
+    if (textoErro.includes('storage/unauthorized') || textoErro.includes('forbidden')) {
+      definirMensagemStatus('Erro ao enviar: Firebase Storage bloqueou o upload. Publique as regras de Storage no Firebase Console.', 'error');
+    } else {
+      definirMensagemStatus(`Erro ao enviar: ${error?.message || 'Falha inesperada.'}`, 'error');
+    }
     definirEstadoEnvio(false);
   }
 });
@@ -627,3 +960,5 @@ atualizarCampoHoras();
 validarDatasNaoFuturas();
 registrarEventoBackend('acesso_pagina');
 ocultarProgressoUpload();
+inicializarGateProjeto();
+atualizarLinkVoltarFormulario();

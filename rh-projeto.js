@@ -8,20 +8,32 @@ const filtroNomeInput = document.getElementById('filtroNome');
 const filtroDataInicioInput = document.getElementById('filtroDataInicio');
 const filtroDataFimInput = document.getElementById('filtroDataFim');
 const filtroTipoSelect = document.getElementById('filtroTipoAtestado');
+const filtroPendentesBtn = document.getElementById('filtroPendentesBtn');
+const filtroFeitosBtn = document.getElementById('filtroFeitosBtn');
 const baixarFiltradosBtn = document.getElementById('baixarFiltradosBtn');
+const voltarPainelRhProjetoBtn = document.getElementById('voltarPainelRhProjetoBtn');
+const BACKEND_URL = (localStorage.getItem('rh_backend_url') || '').trim().replace(/\/+$/, '');
 
 const BASES_PROJETO = {
   '736': 'Base Imbetiba',
   '737': 'Base Imboassica',
   '743': 'Bases: Cabiunas, Severina e Barra do Furado',
   '741': 'Bases: UTE, Áreas Externa e Tapera',
-  '744': 'Apoio Macaé'
+  '744': 'Apoio Macaé',
+  'Apoio Macae': 'Base de apoio'
 };
 
 let registrosProjeto = [];
 let registrosProjetoFiltrados = [];
 let downloadMassaEmAndamento = false;
+let atualizandoAtendimento = false;
+let excluindoAtestado = false;
 let detalhesStatusTimer = null;
+let codigoProjetoAtual = '';
+let todosRegistros = [];
+const ATENDIMENTO_LOCAL_KEY = 'rh_atendimento_status_local';
+let cancelMonitorAcessoRh = null;
+let filtroAtendimentoAtual = 'pendente';
 
 async function requisicaoBackendJson(url, options = {}, tentativas = 2) {
   let ultimaResposta = null;
@@ -50,6 +62,99 @@ async function requisicaoBackendJson(url, options = {}, tentativas = 2) {
   }
 
   throw new Error(`${ultimaResposta?.status || 'BACKEND_ERROR'}`);
+}
+
+function erroPermissaoFirestore(error) {
+  const texto = `${error?.code || ''} ${error?.message || ''}`.toLowerCase();
+  return texto.includes('permission-denied') || texto.includes('missing or insufficient permissions');
+}
+
+function resolverBackendUrl() {
+  const candidatos = listarBackendsCandidatos();
+  return candidatos[0] || '';
+}
+
+function listarBackendsCandidatos() {
+  const urls = [];
+
+  if (BACKEND_URL) {
+    urls.push(BACKEND_URL);
+  }
+
+  if (typeof window !== 'undefined') {
+    const origin = String(window.location.origin || '').trim().replace(/\/+$/, '');
+
+    if (origin && !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) {
+      urls.push(origin);
+    }
+  }
+
+  return [...new Set(urls.filter(Boolean))];
+}
+
+function forcarLogoutPorRevogacaoAcesso() {
+  localStorage.removeItem('rh_auth_token');
+  localStorage.removeItem('rh_user_id');
+  localStorage.removeItem('rh_user_email');
+  localStorage.removeItem('rh_user_nome');
+  localStorage.removeItem('rh_user_pendente');
+  window.location.href = 'rh-login.html';
+}
+
+function iniciarMonitoramentoAcessoRh() {
+  const email = String(localStorage.getItem('rh_user_email') || '').trim().toLowerCase();
+  if (!email || typeof window?.firebase?.firestore !== 'function') {
+    return;
+  }
+
+  try {
+    cancelMonitorAcessoRh = window.firebase.firestore()
+      .collection('usuarios_rh')
+      .where('email', '==', email)
+      .limit(1)
+      .onSnapshot((snapshot) => {
+        if (!snapshot || snapshot.empty) {
+          forcarLogoutPorRevogacaoAcesso();
+          return;
+        }
+
+        const usuario = snapshot.docs[0].data() || {};
+        const status = String(usuario.status || '').toLowerCase();
+        const aprovado = usuario.aprovado === true || status === 'aprovado';
+        if (!aprovado) {
+          forcarLogoutPorRevogacaoAcesso();
+        }
+      });
+  } catch {
+    // Sem monitoramento em caso de falha de permissão/rede.
+  }
+}
+
+async function carregarEnviosComFallback() {
+  try {
+    const snapshot = await window.firebase.firestore().collection('envios_atestados').get();
+    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    if (!erroPermissaoFirestore(error)) {
+      throw error;
+    }
+
+    const backends = listarBackendsCandidatos();
+    if (!backends.length) {
+      throw new Error('Sem permissão no Firestore para ler envios_atestados. Publique regras no Firebase Console liberando leitura desta coleção para o painel RH.');
+    }
+
+    for (const backendBase of backends) {
+      try {
+        const dados = await requisicaoBackendJson(`${backendBase}/api/envios?limit=1000`);
+        return Array.isArray(dados) ? dados : [];
+      } catch {
+        // tenta próximo backend candidato
+      }
+    }
+
+    throw new Error(`Backends indisponíveis (${backends.join(', ')}) e Firestore sem permissão para envios_atestados.`);
+  }
 }
 
 function setDetalhesStatus(texto, tipo = 'info') {
@@ -108,6 +213,124 @@ function normalizarTexto(valor) {
     .trim();
 }
 
+function obterEstadoFiltrosDaUrl() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    nome: String(params.get('nome') || '').trim(),
+    inicio: String(params.get('inicio') || '').trim(),
+    fim: String(params.get('fim') || '').trim(),
+    tipo: String(params.get('tipo') || '').trim(),
+    atendimento: String(params.get('atendimento') || '').trim().toLowerCase()
+  };
+}
+
+function atualizarUrlEstadoDetalhes() {
+  const params = new URLSearchParams(window.location.search);
+
+  if (codigoProjetoAtual) {
+    params.set('projeto', codigoProjetoAtual);
+  }
+
+  const nome = String(filtroNomeInput?.value || '').trim();
+  const inicio = String(filtroDataInicioInput?.value || '').trim();
+  const fim = String(filtroDataFimInput?.value || '').trim();
+  const tipo = String(filtroTipoSelect?.value || '').trim();
+
+  if (nome) {
+    params.set('nome', nome);
+  } else {
+    params.delete('nome');
+  }
+
+  if (inicio) {
+    params.set('inicio', inicio);
+  } else {
+    params.delete('inicio');
+  }
+
+  if (fim) {
+    params.set('fim', fim);
+  } else {
+    params.delete('fim');
+  }
+
+  if (tipo) {
+    params.set('tipo', tipo);
+  } else {
+    params.delete('tipo');
+  }
+
+  if (filtroAtendimentoAtual === 'feito' || filtroAtendimentoAtual === 'pendente') {
+    params.set('atendimento', filtroAtendimentoAtual);
+  } else {
+    params.delete('atendimento');
+  }
+
+  const novaUrl = `${window.location.pathname}?${params.toString()}`;
+  window.history.replaceState({}, '', novaUrl);
+}
+
+function restaurarEstadoFiltrosDaUrl() {
+  const estado = obterEstadoFiltrosDaUrl();
+
+  if (filtroNomeInput && estado.nome) {
+    filtroNomeInput.value = estado.nome;
+  }
+  if (filtroDataInicioInput && estado.inicio) {
+    filtroDataInicioInput.value = estado.inicio;
+  }
+  if (filtroDataFimInput && estado.fim) {
+    filtroDataFimInput.value = estado.fim;
+  }
+
+  if (filtroTipoSelect && estado.tipo) {
+    const optionExiste = Array.from(filtroTipoSelect.options).some((opt) => opt.value === estado.tipo);
+    if (optionExiste) {
+      filtroTipoSelect.value = estado.tipo;
+    }
+  }
+
+  if (estado.atendimento === 'feito' || estado.atendimento === 'pendente') {
+    filtroAtendimentoAtual = estado.atendimento;
+  }
+
+  atualizarBotoesFiltroAtendimento();
+}
+
+function atualizarBotoesFiltroAtendimento() {
+  if (filtroPendentesBtn) {
+    const ativo = filtroAtendimentoAtual === 'pendente';
+    filtroPendentesBtn.classList.toggle('is-active', ativo);
+    filtroPendentesBtn.setAttribute('aria-pressed', ativo ? 'true' : 'false');
+  }
+
+  if (filtroFeitosBtn) {
+    const ativo = filtroAtendimentoAtual === 'feito';
+    filtroFeitosBtn.classList.toggle('is-active', ativo);
+    filtroFeitosBtn.setAttribute('aria-pressed', ativo ? 'true' : 'false');
+  }
+}
+
+function definirFiltroAtendimento(status) {
+  const normalizado = status === 'feito' ? 'feito' : 'pendente';
+  if (filtroAtendimentoAtual === normalizado) {
+    return;
+  }
+
+  filtroAtendimentoAtual = normalizado;
+  atualizarBotoesFiltroAtendimento();
+  aplicarFiltros();
+}
+
+function configurarLinkVoltar() {
+  if (!voltarPainelRhProjetoBtn) return;
+
+  const params = new URLSearchParams(window.location.search);
+  const origem = String(params.get('origem') || 'rh-atestados.html').trim();
+  const origemSegura = /^[a-z0-9\-_.]+\.html$/i.test(origem) ? origem : 'rh-atestados.html';
+  voltarPainelRhProjetoBtn.href = origemSegura;
+}
+
 function obterDataISO(valorDataHora) {
   if (!valorDataHora || typeof valorDataHora !== 'string') return '';
   const data = new Date(valorDataHora);
@@ -152,6 +375,15 @@ function montarNomePdfPorRegistro(record, indice = 0, totalArquivos = 1) {
   return `${base}.pdf`;
 }
 
+function obterNomeArquivoEnviado(arquivo, record, indice, totalArquivos) {
+  const nomeArquivoSalvo = typeof arquivo?.nome === 'string' ? arquivo.nome.trim() : '';
+  if (nomeArquivoSalvo) {
+    return nomeArquivoSalvo;
+  }
+
+  return montarNomePdfPorRegistro(record, indice, totalArquivos);
+}
+
 function validarUrl(url) {
   try {
     const parsed = new URL(url);
@@ -161,13 +393,99 @@ function validarUrl(url) {
   }
 }
 
+function sanitizarNomeArquivoDownload(nome) {
+  const base = String(nome || 'arquivo.pdf').trim() || 'arquivo.pdf';
+  return base
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9._ -]/g, '_')
+    .replace(/["\\\r\n]/g, '_');
+}
+
+function montarUrlForcarDownload(urlArquivo, nomeDownload) {
+  try {
+    const parsed = new URL(urlArquivo);
+    const nomeSeguro = sanitizarNomeArquivoDownload(nomeDownload);
+    parsed.searchParams.set('response-content-disposition', `attachment; filename="${nomeSeguro}"`);
+    parsed.searchParams.set('response-content-type', 'application/octet-stream');
+    return parsed.toString();
+  } catch {
+    return urlArquivo;
+  }
+}
+
+async function garantirMetadataDownload(urlArquivo, nomeDownload) {
+  if (!window.storage || typeof window.storage.refFromURL !== 'function') {
+    return urlArquivo;
+  }
+
+  try {
+    const ref = window.storage.refFromURL(urlArquivo);
+    const nomeSeguro = sanitizarNomeArquivoDownload(nomeDownload);
+    await ref.updateMetadata({
+      contentDisposition: `attachment; filename="${nomeSeguro}"`,
+      contentType: 'application/pdf'
+    });
+    return await ref.getDownloadURL();
+  } catch {
+    return urlArquivo;
+  }
+}
+
 function criarDetalheItem(label, valor) {
   return `<div class="detalhe-item"><span>${label}</span><strong>${valor || '-'}</strong></div>`;
 }
 
+function obterStatusAtendimento(record) {
+  return String(record?.atendimento_status || '').trim().toLowerCase() === 'feito' ? 'feito' : 'pendente';
+}
+
+function rotuloStatusAtendimento(status) {
+  return status === 'feito' ? 'Feito' : 'Pendente';
+}
+
+function classeStatusAtendimento(status) {
+  return status === 'feito' ? 'detalhe-status--feito' : 'detalhe-status--pendente';
+}
+
+function carregarStatusAtendimentoLocal() {
+  try {
+    const bruto = localStorage.getItem(ATENDIMENTO_LOCAL_KEY) || '{}';
+    const parsed = JSON.parse(bruto);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function salvarStatusAtendimentoLocal(registroId, atendimentoStatus) {
+  const mapa = carregarStatusAtendimentoLocal();
+  mapa[String(registroId)] = String(atendimentoStatus || '').trim().toLowerCase() === 'feito' ? 'feito' : 'pendente';
+  localStorage.setItem(ATENDIMENTO_LOCAL_KEY, JSON.stringify(mapa));
+}
+
+function removerStatusAtendimentoLocal(registroId) {
+  const mapa = carregarStatusAtendimentoLocal();
+  delete mapa[String(registroId)];
+  localStorage.setItem(ATENDIMENTO_LOCAL_KEY, JSON.stringify(mapa));
+}
+
+function aplicarStatusAtendimentoLocal(registros) {
+  const mapa = carregarStatusAtendimentoLocal();
+  registros.forEach((registro) => {
+    const id = String(registro?.id || '');
+    if (!id) return;
+    if (mapa[id] === 'feito' || mapa[id] === 'pendente') {
+      registro.atendimento_status = mapa[id];
+    }
+  });
+}
+
 function criarCardRegistro(record) {
   const card = document.createElement('article');
-  card.className = 'detalhe-card';
+  const statusAtendimento = obterStatusAtendimento(record);
+  card.className = `detalhe-card ${statusAtendimento === 'feito' ? 'detalhe-card--feito' : ''}`;
+  card.dataset.registroId = String(record?.id || '');
 
   const arquivos = Array.isArray(record.arquivos)
     ? record.arquivos.map((arquivo) => (typeof arquivo === 'string' ? { url: arquivo } : arquivo))
@@ -178,14 +496,22 @@ function criarCardRegistro(record) {
       .filter((arquivo) => validarUrl(arquivo?.url || arquivo))
       .map((arquivo, indice) => {
         const urlArquivo = arquivo?.url || arquivo;
-        const nomeExibicao = montarNomePdfPorRegistro(record, indice, arquivos.length);
-        return `<a class="download-pdf-link" href="${urlArquivo}" download="${nomeExibicao}" data-download-name="${encodeURIComponent(nomeExibicao)}">${nomeExibicao}</a>`;
+        const nomeExibicao = obterNomeArquivoEnviado(arquivo, record, indice, arquivos.length);
+        const urlDownload = montarUrlForcarDownload(urlArquivo, nomeExibicao);
+        return `<a class="download-pdf-link" href="${urlDownload}" download="${nomeExibicao}" data-download-name="${encodeURIComponent(nomeExibicao)}" data-raw-url="${encodeURIComponent(urlArquivo)}"><span class="download-file-name">${nomeExibicao}</span><span class="download-file-action">Baixar</span></a>`;
       })
       .join('<br>')
     : '-';
 
   card.innerHTML = `
     <h3>${record.nome || 'Sem nome informado'}</h3>
+    <div class="detalhe-top-actions">
+      <span class="detalhe-status ${classeStatusAtendimento(statusAtendimento)}">${rotuloStatusAtendimento(statusAtendimento)}</span>
+      <div class="detalhe-top-actions-buttons">
+        <button type="button" class="detalhe-marcar-btn" data-action="toggle-feito">${statusAtendimento === 'feito' ? 'Desmarcar' : 'Marcar como feito'}</button>
+        <button type="button" class="detalhe-excluir-btn detalhe-excluir-btn--icon" data-action="delete-registro" aria-label="Excluir atestado" title="Excluir atestado"><span aria-hidden="true">&#128465;</span></button>
+      </div>
+    </div>
     <div class="detalhe-grid">
       ${criarDetalheItem('Função', record.funcao)}
       ${criarDetalheItem('Projeto', record.projeto)}
@@ -205,19 +531,250 @@ function criarCardRegistro(record) {
   return card;
 }
 
-async function baixarArquivoComNome(urlArquivo, nomeDownload) {
-  const resposta = await fetch(urlArquivo, { credentials: 'omit' });
-  if (!resposta.ok) throw new Error('Falha ao baixar arquivo.');
+function atualizarStatusLocalRegistro(registroId, atendimentoStatus) {
+  const normalizado = String(atendimentoStatus || '').trim().toLowerCase() === 'feito' ? 'feito' : 'pendente';
 
-  const blob = await resposta.blob();
-  const blobUrl = URL.createObjectURL(blob);
+  const atualizarLista = (lista) => {
+    const idx = lista.findIndex((item) => String(item?.id || '') === String(registroId || ''));
+    if (idx >= 0) {
+      lista[idx].atendimento_status = normalizado;
+      lista[idx].atendimento_atualizado_em = new Date().toISOString();
+    }
+  };
+
+  atualizarLista(todosRegistros);
+  atualizarLista(registrosProjeto);
+  atualizarLista(registrosProjetoFiltrados);
+  salvarStatusAtendimentoLocal(registroId, normalizado);
+}
+
+function removerRegistroLocal(registroId) {
+  const id = String(registroId || '');
+  todosRegistros = todosRegistros.filter((item) => String(item?.id || '') !== id);
+  registrosProjeto = registrosProjeto.filter((item) => String(item?.id || '') !== id);
+  registrosProjetoFiltrados = registrosProjetoFiltrados.filter((item) => String(item?.id || '') !== id);
+  removerStatusAtendimentoLocal(id);
+}
+
+async function excluirRegistroNoBackend(registroId) {
+  const candidatos = listarBackendsCandidatos();
+  if (!candidatos.length) {
+    throw new Error('BACKEND_NOT_AVAILABLE');
+  }
+
+  for (const backendBase of candidatos) {
+    try {
+      await requisicaoBackendJson(`${backendBase}/api/envios/excluir/${encodeURIComponent(registroId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      return;
+    } catch (erro) {
+      const msg = String(erro?.message || '');
+      if (msg.startsWith('404')) {
+        throw new Error('BACKEND_DELETE_ROUTE_NOT_FOUND');
+      }
+      // tenta proximo backend candidato
+    }
+  }
+
+  throw new Error('BACKEND_DELETE_FAILED');
+}
+
+async function excluirRegistroNoFirestore(registroId) {
+  await window.firebase.firestore().collection('envios_atestados').doc(String(registroId)).delete();
+}
+
+async function excluirAtestado(registroId) {
+  if (!registroId) {
+    setDetalhesStatus('Nao foi possivel excluir: registro sem identificacao.', 'error');
+    return;
+  }
+
+  if (excluindoAtestado) {
+    return;
+  }
+
+  const confirmar = window.confirm('Confirma a exclusao deste atestado? Esta acao nao pode ser desfeita.');
+  if (!confirmar) {
+    return;
+  }
+
+  excluindoAtestado = true;
+  setDetalhesStatus('Excluindo atestado...', 'info');
+
+  try {
+    try {
+      await excluirRegistroNoBackend(registroId);
+    } catch {
+      await excluirRegistroNoFirestore(registroId);
+    }
+
+    removerRegistroLocal(registroId);
+    aplicarFiltros();
+    setDetalhesStatus('Atestado excluido com sucesso.', 'success');
+  } catch (error) {
+    setDetalhesStatus(`Nao foi possivel excluir o atestado: ${error?.message || 'falha desconhecida'}`, 'error');
+  } finally {
+    excluindoAtestado = false;
+  }
+}
+
+async function atualizarStatusAtendimentoNoBackend(registroId, atendimentoStatus) {
+  const candidatos = listarBackendsCandidatos();
+  if (!candidatos.length) {
+    throw new Error('BACKEND_NOT_AVAILABLE');
+  }
+
+  for (const backendBase of candidatos) {
+    try {
+      await requisicaoBackendJson(`${backendBase}/api/envios/status/${encodeURIComponent(registroId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ atendimento_status: atendimentoStatus })
+      });
+      return;
+    } catch (erro) {
+      const msg = String(erro?.message || '');
+      if (msg.startsWith('404')) {
+        throw new Error('BACKEND_STATUS_ROUTE_NOT_FOUND');
+      }
+      // tenta próximo backend
+    }
+  }
+
+  throw new Error('BACKEND_STATUS_UPDATE_FAILED');
+}
+
+async function atualizarStatusAtendimentoNoFirestore(registroId, atendimentoStatus) {
+  await window.firebase.firestore().collection('envios_atestados').doc(String(registroId)).set({
+    atendimento_status: atendimentoStatus,
+    atendimento_atualizado_em: new Date().toISOString()
+  }, { merge: true });
+}
+
+async function marcarRegistroComoFeito(registroId, atendimentoStatus) {
+  if (!registroId) {
+    setDetalhesStatus('Não foi possível atualizar: registro sem identificação.', 'error');
+    return;
+  }
+
+  if (atualizandoAtendimento) {
+    return;
+  }
+
+  atualizandoAtendimento = true;
+  const statusDestino = atendimentoStatus === 'feito' ? 'feito' : 'pendente';
+
+  try {
+    try {
+      await atualizarStatusAtendimentoNoBackend(registroId, statusDestino);
+    } catch {
+      await atualizarStatusAtendimentoNoFirestore(registroId, statusDestino);
+    }
+
+    atualizarStatusLocalRegistro(registroId, statusDestino);
+    aplicarFiltros();
+    setDetalhesStatus(statusDestino === 'feito' ? 'Atestado marcado como feito.' : 'Atestado marcado como pendente.', 'success');
+  } catch (error) {
+    const msg = String(error?.message || '');
+    if (msg.includes('BACKEND_STATUS_ROUTE_NOT_FOUND') || msg.includes('BACKEND_STATUS_UPDATE_FAILED') || msg.includes('permission-denied') || msg.includes('insufficient permissions')) {
+      // Fallback local para evitar travar o atendimento quando backend/firestore não estiverem disponíveis.
+      atualizarStatusLocalRegistro(registroId, statusDestino);
+      aplicarFiltros();
+      return;
+    }
+
+    setDetalhesStatus(`Não foi possível atualizar o status: ${error?.message || 'falha desconhecida'}`, 'error');
+  } finally {
+    atualizandoAtendimento = false;
+  }
+}
+
+function ativarAcoesAtendimentoNosCards() {
+  if (!detalhesContainer) return;
+
+  detalhesContainer.addEventListener('click', async (event) => {
+    const botaoExcluir = event.target.closest('button.detalhe-excluir-btn[data-action="delete-registro"]');
+    if (botaoExcluir) {
+      event.preventDefault();
+      const card = botaoExcluir.closest('.detalhe-card');
+      const registroId = String(card?.dataset?.registroId || '').trim();
+      await excluirAtestado(registroId);
+      return;
+    }
+
+    const botaoAtendimento = event.target.closest('button.detalhe-marcar-btn[data-action="toggle-feito"]');
+    if (!botaoAtendimento) return;
+
+    event.preventDefault();
+    const card = botaoAtendimento.closest('.detalhe-card');
+    const registroId = String(card?.dataset?.registroId || '').trim();
+    const registro = registrosProjeto.find((item) => String(item?.id || '') === registroId);
+    const statusAtual = obterStatusAtendimento(registro);
+    const statusDestino = statusAtual === 'feito' ? 'pendente' : 'feito';
+    await marcarRegistroComoFeito(registroId, statusDestino);
+  });
+}
+
+async function baixarArquivoComNome(urlArquivo, nomeDownload) {
+  const urlComMetadata = await garantirMetadataDownload(urlArquivo, nomeDownload);
+  const urlDownload = montarUrlForcarDownload(urlComMetadata, nomeDownload);
   const link = document.createElement('a');
-  link.href = blobUrl;
+  link.href = urlDownload;
   link.download = nomeDownload;
   document.body.appendChild(link);
   link.click();
   link.remove();
-  setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+}
+
+function ehUrlFirebaseStorage(urlArquivo) {
+  try {
+    const parsed = new URL(urlArquivo);
+    return parsed.hostname === 'firebasestorage.googleapis.com';
+  } catch {
+    return false;
+  }
+}
+
+async function baixarBlobParaZip(urlArquivo, nomeArquivo) {
+  try {
+    const respostaDireta = await fetch(urlArquivo, { credentials: 'omit' });
+    if (respostaDireta.ok) {
+      return await respostaDireta.blob();
+    }
+  } catch {
+    // tenta proxy via backend
+  }
+
+  const backends = listarBackendsCandidatos();
+  if (!backends.length) {
+    throw new Error('BACKEND_PROXY_NOT_AVAILABLE');
+  }
+
+  for (const backendBase of backends) {
+    const proxyUrl = `${backendBase}/api/arquivos/proxy?url=${encodeURIComponent(urlArquivo)}&nome=${encodeURIComponent(nomeArquivo)}`;
+    try {
+      const respostaProxy = await fetch(proxyUrl, { credentials: 'omit' });
+      if (respostaProxy.ok) {
+        return await respostaProxy.blob();
+      }
+    } catch {
+      // tenta próximo backend
+    }
+  }
+
+  throw new Error('BACKEND_PROXY_UNREACHABLE');
+}
+
+async function baixarArquivosIndividualmente(arquivos) {
+  for (let i = 0; i < arquivos.length; i += 1) {
+    const arquivo = arquivos[i];
+    await baixarArquivoComNome(arquivo.url, arquivo.nome);
+    if (i < arquivos.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 180));
+    }
+  }
 }
 
 function ativarDownloadComNome() {
@@ -226,14 +783,15 @@ function ativarDownloadComNome() {
     if (!link) return;
 
     event.preventDefault();
-    const urlArquivo = link.getAttribute('href');
+    const raw = link.getAttribute('data-raw-url') || '';
+    const urlArquivo = raw ? decodeURIComponent(raw) : (link.getAttribute('href') || '');
     const nomeCodificado = link.getAttribute('data-download-name') || '';
     const nomeDownload = nomeCodificado ? decodeURIComponent(nomeCodificado) : 'arquivo.pdf';
 
     try {
       await baixarArquivoComNome(urlArquivo, nomeDownload);
     } catch {
-      window.open(urlArquivo, '_blank');
+      setDetalhesStatus('Não foi possível iniciar o download deste arquivo.', 'error');
     }
   });
 }
@@ -248,7 +806,7 @@ function coletarArquivosDosRegistros(registros) {
       .filter((arquivo) => validarUrl(arquivo?.url || arquivo))
       .map((arquivo, indice) => ({
         url: arquivo?.url || arquivo,
-        nome: montarNomePdfPorRegistro(registro, indice, arquivos.length)
+        nome: obterNomeArquivoEnviado(arquivo, registro, indice, arquivos.length)
       }));
   });
 }
@@ -257,18 +815,31 @@ function atualizarBotaoDownloadEmMassa() {
   if (!baixarFiltradosBtn) return;
   const totalArquivos = coletarArquivosDosRegistros(registrosProjetoFiltrados).length;
   baixarFiltradosBtn.textContent = totalArquivos > 0
-    ? `Baixar PDFs filtrados (${totalArquivos})`
-    : 'Baixar PDFs filtrados';
+    ? `Exportação em massa (${totalArquivos})`
+    : 'Exportação em massa';
   baixarFiltradosBtn.disabled = totalArquivos === 0 || downloadMassaEmAndamento;
 }
 
 async function baixarPdfsFiltrados() {
   if (downloadMassaEmAndamento) return;
 
-  const arquivos = coletarArquivosDosRegistros(registrosProjetoFiltrados);
+  let arquivos = coletarArquivosDosRegistros(registrosProjetoFiltrados);
   if (!arquivos.length) {
-    setDetalhesStatus('Não há PDFs nos filtros atuais para baixar.', 'info');
-    return;
+    const statusAlternativo = filtroAtendimentoAtual === 'pendente' ? 'feito' : 'pendente';
+    const registrosBase = filtrarRegistrosSemAtendimento();
+    const registrosAlternativos = registrosBase.filter((registro) => obterStatusAtendimento(registro) === statusAlternativo);
+    const arquivosAlternativos = coletarArquivosDosRegistros(registrosAlternativos);
+
+    if (arquivosAlternativos.length) {
+      filtroAtendimentoAtual = statusAlternativo;
+      atualizarBotoesFiltroAtendimento();
+      aplicarFiltros();
+      arquivos = arquivosAlternativos;
+      setDetalhesStatus(`Sem arquivos no status atual. Exportando ${statusAlternativo === 'feito' ? 'Feitos' : 'Pendentes'} automaticamente.`, 'info');
+    } else {
+      setDetalhesStatus('Não há arquivos nos filtros atuais para exportar.', 'info');
+      return;
+    }
   }
 
   if (!window.JSZip) {
@@ -278,16 +849,14 @@ async function baixarPdfsFiltrados() {
 
   downloadMassaEmAndamento = true;
   atualizarBotaoDownloadEmMassa();
+  setDetalhesStatus('Gerando arquivo ZIP da exportação em massa...', 'info');
 
   try {
     const zip = new window.JSZip();
     const nomesUsados = new Set();
 
     for (const arquivo of arquivos) {
-      const resposta = await fetch(arquivo.url, { credentials: 'omit' });
-      if (!resposta.ok) continue;
-
-      const blob = await resposta.blob();
+      const blob = await baixarBlobParaZip(arquivo.url, arquivo.nome);
       let nome = arquivo.nome;
       if (nomesUsados.has(nome)) {
         const base = nome.replace(/\.pdf$/i, '');
@@ -307,15 +876,22 @@ async function baixarPdfsFiltrados() {
 
     const link = document.createElement('a');
     link.href = zipUrl;
-    link.download = `PDFs-Projeto-${codigoProjeto}-${timestamp}.zip`;
+    link.download = `Exportacao-em-massa-Projeto-${codigoProjeto}-${timestamp}.zip`;
     document.body.appendChild(link);
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(zipUrl), 1000);
 
-    setDetalhesStatus(`ZIP gerado com sucesso: ${arquivos.length} PDF(s).`, 'success');
+    setDetalhesStatus(`ZIP gerado com sucesso: ${arquivos.length} arquivo(s).`, 'success');
   } catch (error) {
-    setDetalhesStatus(`Erro ao gerar ZIP: ${error?.message || 'Falha no download em massa.'}`, 'error');
+    console.error('Falha ao gerar ZIP de exportação em massa:', error);
+    if (error?.message === 'BACKEND_PROXY_NOT_AVAILABLE') {
+      setDetalhesStatus('Não foi possível gerar o ZIP: configure a URL do backend em nuvem em localStorage["rh_backend_url"].', 'error');
+    } else if (error?.message === 'BACKEND_PROXY_UNREACHABLE') {
+      setDetalhesStatus('Não foi possível gerar o ZIP: backend em nuvem indisponível ou URL inválida.', 'error');
+    } else {
+      setDetalhesStatus(`Não foi possível gerar o ZIP (${error?.message || 'falha desconhecida'}).`, 'error');
+    }
   } finally {
     downloadMassaEmAndamento = false;
     atualizarBotaoDownloadEmMassa();
@@ -337,7 +913,18 @@ function preencherFiltroTipo(registros) {
   });
 }
 
-function aplicarFiltros() {
+function aplicarFiltroTipoInicialDaUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const tipoInicial = String(params.get('tipo') || '').trim();
+  if (!tipoInicial) return;
+
+  const optionExiste = Array.from(filtroTipoSelect.options).some((opt) => opt.value === tipoInicial);
+  if (optionExiste) {
+    filtroTipoSelect.value = tipoInicial;
+  }
+}
+
+function filtrarRegistrosSemAtendimento() {
   const nomeFiltro = normalizarTexto(filtroNomeInput.value);
   const dataInicioFiltro = filtroDataInicioInput.value;
   const dataFimFiltro = filtroDataFimInput.value;
@@ -345,7 +932,7 @@ function aplicarFiltros() {
   const dataMaxFiltro = dataInicioFiltro && dataFimFiltro && dataInicioFiltro > dataFimFiltro ? dataInicioFiltro : dataFimFiltro;
   const tipoFiltro = filtroTipoSelect.value;
 
-  const filtrados = registrosProjeto.filter((registro) => {
+  return registrosProjeto.filter((registro) => {
     const nomeRegistro = normalizarTexto(registro?.nome);
     const dataRegistro = obterDataISO(registro?.criado_em);
     const tipoRegistro = String(registro?.tipo_atestado || '');
@@ -357,6 +944,31 @@ function aplicarFiltros() {
 
     return correspondeNome && correspondeDataInicio && correspondeDataFim && correspondeTipo;
   });
+}
+
+function selecionarFiltroAtendimentoComResultados() {
+  const pendentes = registrosProjeto.filter((registro) => obterStatusAtendimento(registro) === 'pendente').length;
+  const feitos = registrosProjeto.filter((registro) => obterStatusAtendimento(registro) === 'feito').length;
+
+  if (filtroAtendimentoAtual === 'pendente' && pendentes === 0 && feitos > 0) {
+    filtroAtendimentoAtual = 'feito';
+  } else if (filtroAtendimentoAtual === 'feito' && feitos === 0 && pendentes > 0) {
+    filtroAtendimentoAtual = 'pendente';
+  }
+
+  atualizarBotoesFiltroAtendimento();
+}
+
+function aplicarFiltros() {
+  const baseFiltrada = filtrarRegistrosSemAtendimento();
+  const atendimentoFiltro = filtroAtendimentoAtual;
+
+  const filtrados = baseFiltrada.filter((registro) => {
+    const statusAtendimento = obterStatusAtendimento(registro);
+    const correspondeAtendimento = statusAtendimento === atendimentoFiltro;
+
+    return correspondeAtendimento;
+  });
 
   registrosProjetoFiltrados = filtrados;
   atualizarBotaoDownloadEmMassa();
@@ -364,11 +976,13 @@ function aplicarFiltros() {
 
   if (!filtrados.length) {
     setDetalhesStatus('Nenhum registro encontrado com os filtros aplicados.', 'info');
+    atualizarUrlEstadoDetalhes();
     return;
   }
 
   filtrados.forEach((registro) => detalhesContainer.appendChild(criarCardRegistro(registro)));
   setDetalhesStatus(`Mostrando ${filtrados.length} de ${registrosProjeto.length} registro(s).`, 'success');
+  atualizarUrlEstadoDetalhes();
 }
 
 function configurarEventosFiltros() {
@@ -376,30 +990,37 @@ function configurarEventosFiltros() {
   filtroDataInicioInput.addEventListener('change', aplicarFiltros);
   filtroDataFimInput.addEventListener('change', aplicarFiltros);
   filtroTipoSelect.addEventListener('change', aplicarFiltros);
+  if (filtroPendentesBtn) {
+    filtroPendentesBtn.addEventListener('click', () => definirFiltroAtendimento('pendente'));
+  }
+  if (filtroFeitosBtn) {
+    filtroFeitosBtn.addEventListener('click', () => definirFiltroAtendimento('feito'));
+  }
   if (baixarFiltradosBtn) {
     baixarFiltradosBtn.addEventListener('click', baixarPdfsFiltrados);
   }
 }
 
-let todosRegistros = [];
 async function carregarDetalhesProjeto() {
   const params = new URLSearchParams(window.location.search);
   const codigoProjeto = params.get('projeto') || '';
+  codigoProjetoAtual = codigoProjeto;
 
   if (!codigoProjeto) {
     setDetalhesStatus('Projeto não informado.', 'error');
     return;
   }
 
-  projetoTitulo.textContent = `Projeto ${codigoProjeto}`;
+  const tituloProjeto = /^\d+$/.test(codigoProjeto) ? `Projeto ${codigoProjeto}` : codigoProjeto;
+  projetoTitulo.textContent = tituloProjeto;
   projetoDescricao.textContent = BASES_PROJETO[codigoProjeto] || 'Bases relacionadas ao projeto selecionado.';
 
   setDetalhesStatus('Carregando informações preenchidas...', 'info');
 
   try {
-    // Buscar todos os registros do Firestore
-    const snapshot = await window.firebase.firestore().collection('envios_atestados').get();
-    todosRegistros = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    // Busca no Firestore e faz fallback para backend quando necessário.
+    todosRegistros = await carregarEnviosComFallback();
+    aplicarStatusAtendimentoLocal(todosRegistros);
     const padraoProjeto = new RegExp(`\\b${codigoProjeto}\\b`);
 
     registrosProjeto = todosRegistros.filter((registro) => padraoProjeto.test(String(registro?.projeto || '')));
@@ -414,6 +1035,9 @@ async function carregarDetalhesProjeto() {
     }
 
     preencherFiltroTipo(registrosProjeto);
+    aplicarFiltroTipoInicialDaUrl();
+    restaurarEstadoFiltrosDaUrl();
+    selecionarFiltroAtendimentoComResultados();
     aplicarFiltros();
   } catch (error) {
     setDetalhesStatus(`Erro ao carregar informações: ${error?.message || 'Falha ao carregar dados do projeto.'}`, 'error');
@@ -421,5 +1045,8 @@ async function carregarDetalhesProjeto() {
 }
 
 ativarDownloadComNome();
+ativarAcoesAtendimentoNosCards();
+iniciarMonitoramentoAcessoRh();
+configurarLinkVoltar();
 configurarEventosFiltros();
 carregarDetalhesProjeto();
