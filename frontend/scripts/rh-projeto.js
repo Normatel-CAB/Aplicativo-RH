@@ -60,12 +60,13 @@ const TITULOS_PROJETO = {
 let registrosProjeto = [];
 let registrosProjetoFiltrados = [];
 let downloadMassaEmAndamento = false;
-let atualizandoAtendimento = false;
+const atendimentosEmAtualizacao = new Set();
 let excluindoAtestado = false;
 let detalhesStatusTimer = null;
 let codigoProjetoAtual = '';
 let todosRegistros = [];
-const ATENDIMENTO_LOCAL_KEY = 'rh_atendimento_status_local';
+const RH_PROJETO_CODIGO_KEY = 'rh_projeto_codigo';
+const RH_PROJETO_ORIGEM_KEY = 'rh_projeto_origem';
 let cancelMonitorAcessoRh = null;
 let filtroAtendimentoAtual = 'pendente';
 
@@ -202,7 +203,11 @@ async function carregarEnviosComFallback() {
 }
 
 function setDetalhesStatus(texto, tipo = 'info') {
-  if (!detalhesStatus) return;
+  if (!detalhesStatus) {
+    const metodo = tipo === 'error' ? 'error' : (tipo === 'success' ? 'log' : 'info');
+    console[metodo](`[rh-projeto] ${texto}`);
+    return;
+  }
 
   if (detalhesStatusTimer) {
     clearTimeout(detalhesStatusTimer);
@@ -314,9 +319,8 @@ function obterEstadoFiltrosDaUrl() {
 function atualizarUrlEstadoDetalhes() {
   const params = new URLSearchParams(window.location.search);
 
-  if (codigoProjetoAtual) {
-    params.set('projeto', codigoProjetoAtual);
-  }
+  params.delete('projeto');
+  params.delete('origem');
 
   const nome = String(filtroNomeInput?.value || '').trim();
   const inicio = String(filtroDataInicioInput?.value || '').trim();
@@ -413,9 +417,23 @@ function configurarLinkVoltar() {
   if (!voltarPainelRhProjetoBtn) return;
 
   const params = new URLSearchParams(window.location.search);
-  const origem = String(params.get('origem') || 'rh-atestados.html').trim();
+  const origemSessao = String(sessionStorage.getItem(RH_PROJETO_ORIGEM_KEY) || '').trim();
+  const origem = String(origemSessao || params.get('origem') || 'rh-atestados.html').trim();
   const origemSegura = /^[a-z0-9\-_.]+\.html$/i.test(origem) ? origem : 'rh-atestados.html';
   voltarPainelRhProjetoBtn.href = origemSegura;
+}
+
+function obterCodigoProjetoSelecionado() {
+  const params = new URLSearchParams(window.location.search);
+  const codigoSessao = String(sessionStorage.getItem(RH_PROJETO_CODIGO_KEY) || '').trim();
+  const codigoUrl = String(params.get('projeto') || '').trim();
+  const codigo = codigoSessao || codigoUrl;
+
+  if (codigo) {
+    sessionStorage.setItem(RH_PROJETO_CODIGO_KEY, codigo);
+  }
+
+  return codigo;
 }
 
 function obterDataISO(valorDataHora) {
@@ -535,9 +553,9 @@ function classeStatusAtendimento(status) {
   return status === 'feito' ? 'detalhe-status--feito' : 'detalhe-status--pendente';
 }
 
-function carregarStatusAtendimentoLocal() {
+function lerStatusAtendimentoLegado() {
   try {
-    const bruto = localStorage.getItem(ATENDIMENTO_LOCAL_KEY) || '{}';
+    const bruto = localStorage.getItem('rh_atendimento_status_local') || '{}';
     const parsed = JSON.parse(bruto);
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
@@ -545,27 +563,62 @@ function carregarStatusAtendimentoLocal() {
   }
 }
 
-function salvarStatusAtendimentoLocal(registroId, atendimentoStatus) {
-  const mapa = carregarStatusAtendimentoLocal();
-  mapa[String(registroId)] = String(atendimentoStatus || '').trim().toLowerCase() === 'feito' ? 'feito' : 'pendente';
-  localStorage.setItem(ATENDIMENTO_LOCAL_KEY, JSON.stringify(mapa));
-}
+async function migrarStatusAtendimentoLegado(registros) {
+  const mapaLegado = lerStatusAtendimentoLegado();
+  const entradas = Object.entries(mapaLegado || {});
+  if (!entradas.length) {
+    return { migrados: 0, pendentes: 0 };
+  }
 
-function removerStatusAtendimentoLocal(registroId) {
-  const mapa = carregarStatusAtendimentoLocal();
-  delete mapa[String(registroId)];
-  localStorage.setItem(ATENDIMENTO_LOCAL_KEY, JSON.stringify(mapa));
-}
+  const porId = new Map((registros || []).map((registro) => [String(registro?.id || ''), registro]));
+  const mapaPendente = {};
+  let migrados = 0;
 
-function aplicarStatusAtendimentoLocal(registros) {
-  const mapa = carregarStatusAtendimentoLocal();
-  registros.forEach((registro) => {
-    const id = String(registro?.id || '');
-    if (!id) return;
-    if (mapa[id] === 'feito' || mapa[id] === 'pendente') {
-      registro.atendimento_status = mapa[id];
+  for (const [idBruto, statusBruto] of entradas) {
+    const id = String(idBruto || '').trim();
+    if (!id || !porId.has(id)) {
+      continue;
     }
-  });
+
+    const statusDestino = String(statusBruto || '').trim().toLowerCase() === 'feito' ? 'feito' : 'pendente';
+    const registro = porId.get(id);
+    const statusAtual = obterStatusAtendimento(registro);
+
+    if (statusAtual === statusDestino) {
+      migrados += 1;
+      continue;
+    }
+
+    try {
+      try {
+        await atualizarStatusAtendimentoNoBackend(id, statusDestino);
+      } catch {
+        await atualizarStatusAtendimentoNoFirestore(id, statusDestino);
+      }
+
+      registro.atendimento_status = statusDestino;
+      registro.atendimento_atualizado_em = new Date().toISOString();
+      migrados += 1;
+    } catch {
+      mapaPendente[id] = statusDestino;
+    }
+  }
+
+  if (Object.keys(mapaPendente).length) {
+    try {
+      localStorage.setItem('rh_atendimento_status_local', JSON.stringify(mapaPendente));
+    } catch {
+      // Mantem fluxo mesmo com bloqueio de storage.
+    }
+  } else {
+    try {
+      localStorage.removeItem('rh_atendimento_status_local');
+    } catch {
+      // Mantem fluxo mesmo com bloqueio de storage.
+    }
+  }
+
+  return { migrados, pendentes: Object.keys(mapaPendente).length };
 }
 
 function criarCardRegistro(record) {
@@ -632,7 +685,14 @@ function atualizarStatusLocalRegistro(registroId, atendimentoStatus) {
   atualizarLista(todosRegistros);
   atualizarLista(registrosProjeto);
   atualizarLista(registrosProjetoFiltrados);
-  salvarStatusAtendimentoLocal(registroId, normalizado);
+}
+
+function obterRegistroPorId(registroId) {
+  const id = String(registroId || '');
+  return todosRegistros.find((item) => String(item?.id || '') === id)
+    || registrosProjeto.find((item) => String(item?.id || '') === id)
+    || registrosProjetoFiltrados.find((item) => String(item?.id || '') === id)
+    || null;
 }
 
 function removerRegistroLocal(registroId) {
@@ -640,7 +700,6 @@ function removerRegistroLocal(registroId) {
   todosRegistros = todosRegistros.filter((item) => String(item?.id || '') !== id);
   registrosProjeto = registrosProjeto.filter((item) => String(item?.id || '') !== id);
   registrosProjetoFiltrados = registrosProjetoFiltrados.filter((item) => String(item?.id || '') !== id);
-  removerStatusAtendimentoLocal(id);
 }
 
 async function excluirRegistroNoBackend(registroId) {
@@ -746,35 +805,40 @@ async function marcarRegistroComoFeito(registroId, atendimentoStatus) {
     return;
   }
 
-  if (atualizandoAtendimento) {
+  const id = String(registroId || '');
+  if (atendimentosEmAtualizacao.has(id)) {
     return;
   }
 
-  atualizandoAtendimento = true;
+  atendimentosEmAtualizacao.add(id);
   const statusDestino = atendimentoStatus === 'feito' ? 'feito' : 'pendente';
+  const registroAlvo = obterRegistroPorId(id);
+  const statusAnterior = registroAlvo ? obterStatusAtendimento(registroAlvo) : 'pendente';
+
+  // Atualização otimista: a UI responde imediatamente e sincroniza em segundo plano.
+  if (statusAnterior !== statusDestino) {
+    atualizarStatusLocalRegistro(id, statusDestino);
+    aplicarFiltros();
+  }
 
   try {
     try {
-      await atualizarStatusAtendimentoNoBackend(registroId, statusDestino);
+      await atualizarStatusAtendimentoNoBackend(id, statusDestino);
     } catch {
-      await atualizarStatusAtendimentoNoFirestore(registroId, statusDestino);
+      await atualizarStatusAtendimentoNoFirestore(id, statusDestino);
     }
 
-    atualizarStatusLocalRegistro(registroId, statusDestino);
-    aplicarFiltros();
     setDetalhesStatus(statusDestino === 'feito' ? 'Atestado marcado como feito.' : 'Atestado marcado como pendente.', 'success');
   } catch (error) {
-    const msg = String(error?.message || '');
-    if (msg.includes('BACKEND_STATUS_ROUTE_NOT_FOUND') || msg.includes('BACKEND_STATUS_UPDATE_FAILED') || msg.includes('permission-denied') || msg.includes('insufficient permissions')) {
-      // Fallback local para evitar travar o atendimento quando backend/firestore não estiverem disponíveis.
-      atualizarStatusLocalRegistro(registroId, statusDestino);
+    // Rollback do estado em caso de falha na persistência.
+    if (statusAnterior !== statusDestino) {
+      atualizarStatusLocalRegistro(id, statusAnterior);
       aplicarFiltros();
-      return;
     }
 
     setDetalhesStatus(`Não foi possível atualizar o status: ${error?.message || 'falha desconhecida'}`, 'error');
   } finally {
-    atualizandoAtendimento = false;
+    atendimentosEmAtualizacao.delete(id);
   }
 }
 
@@ -957,8 +1021,7 @@ async function baixarPdfsFiltrados() {
 
     const zipBlob = await zip.generateAsync({ type: 'blob' });
     const zipUrl = URL.createObjectURL(zipBlob);
-    const params = new URLSearchParams(window.location.search);
-    const codigoProjeto = params.get('projeto') || 'projeto';
+    const codigoProjeto = String(codigoProjetoAtual || 'projeto').trim() || 'projeto';
     const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
 
     const link = document.createElement('a');
@@ -1090,12 +1153,19 @@ function configurarEventosFiltros() {
 
 async function carregarDetalhesProjeto() {
   const params = new URLSearchParams(window.location.search);
-  const codigoProjeto = params.get('projeto') || '';
+  const codigoProjeto = obterCodigoProjetoSelecionado();
   codigoProjetoAtual = codigoProjeto;
 
   if (!codigoProjeto) {
     setDetalhesStatus('Projeto não informado.', 'error');
     return;
+  }
+
+  if (params.has('projeto') || params.has('origem')) {
+    params.delete('projeto');
+    params.delete('origem');
+    const novaUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
+    window.history.replaceState({}, '', novaUrl);
   }
 
   const tituloProjeto = obterTituloProjeto(codigoProjeto);
@@ -1107,7 +1177,13 @@ async function carregarDetalhesProjeto() {
   try {
     // Busca no Firestore e faz fallback para backend quando necessário.
     todosRegistros = await carregarEnviosComFallback();
-    aplicarStatusAtendimentoLocal(todosRegistros);
+
+    const resultadoMigracao = await migrarStatusAtendimentoLegado(todosRegistros);
+    if (resultadoMigracao.migrados > 0 && resultadoMigracao.pendentes === 0) {
+      setDetalhesStatus(`Sincronização concluída: ${resultadoMigracao.migrados} registro(s) de atendimento migrado(s).`, 'success');
+    } else if (resultadoMigracao.migrados > 0 && resultadoMigracao.pendentes > 0) {
+      setDetalhesStatus(`Sincronização parcial: ${resultadoMigracao.migrados} migrado(s), ${resultadoMigracao.pendentes} pendente(s).`, 'info');
+    }
 
     registrosProjeto = todosRegistros.filter((registro) => correspondeProjeto(registro?.projeto, codigoProjeto));
     registrosProjetoFiltrados = registrosProjeto;
