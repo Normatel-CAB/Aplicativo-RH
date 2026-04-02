@@ -13,7 +13,7 @@ const filtroFeitosBtn = document.getElementById('filtroFeitosBtn');
 const filtroExcluidosBtn = document.getElementById('filtroExcluidosBtn');
 const baixarFiltradosBtn = document.getElementById('baixarFiltradosBtn');
 const voltarPainelRhProjetoBtn = document.getElementById('voltarPainelRhProjetoBtn');
-const DEFAULT_REMOTE_BACKEND_URL = '';
+const DEFAULT_REMOTE_BACKEND_URL = 'https://api-vgqcbmomea-uc.a.run.app';
 
 function resolverBackendUrl() {
   const valorConfigurado = String(localStorage.getItem('rh_backend_url') || '').trim();
