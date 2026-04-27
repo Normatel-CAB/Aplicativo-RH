@@ -805,6 +805,15 @@ if (rhAccessBtn) {
 
 
 
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   definirEstadoEnvio(true);
@@ -896,36 +905,30 @@ form.addEventListener('submit', async (event) => {
       throw new Error('Os dias devem ser entre 1 e 365. Verifique as datas de início e fim.');
     }
 
-    // Verifica se o usuário está autenticado antes de qualquer operação sensível
-    // Fluxo público: o envio não depende de sessão Firebase Auth.
-
-    atualizarProgressoUpload(5, '5%');
-
-    // Upload dos arquivos para o Storage (paralelo)
+    // Upload direto para Firebase Storage via client SDK — sem necessidade de service account no backend
     const nomePdfPadrao = montarNomePdfPadrao();
-    const timestampBase = Date.now();
-    const totalBytes = convertidos.reduce((total, convertido) => total + (Number(convertido?.blob?.size) || 0), 0);
+    const envioId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const tracking_id = Math.random().toString(36).slice(2, 10).toUpperCase();
+    const totalBytes = convertidos.reduce((total, c) => total + (Number(c?.blob?.size) || 0), 0);
     const bytesTransferidosPorArquivo = new Array(convertidos.length).fill(0);
-    const arquivosPayload = await Promise.all(
-      convertidos.map(async (convertido, indice) => {
-        const nomeArquivo = convertidos.length > 1
-          ? nomePdfPadrao.replace('.pdf', ` - ANEXO ${indice + 1}.pdf`)
-          : nomePdfPadrao;
 
-        const storageRef = window.storage.ref(`atestados/${timestampBase}_${indice + 1}_${nomeArquivo}`);
-        const url = await uploadComProgresso(storageRef, convertido.blob, bytesTransferidosPorArquivo, indice, totalBytes, nomeArquivo);
+    const arquivosUpload = await Promise.all(convertidos.map(async (convertido, indice) => {
+      const nomeArquivo = convertidos.length > 1
+        ? nomePdfPadrao.replace('.pdf', ` - ANEXO ${indice + 1}.pdf`)
+        : nomePdfPadrao;
+      const caminho = `envios/${envioId}/${nomeArquivo}`;
+      const storageRef = window.storage.ref(caminho);
+      const url = await uploadComProgresso(storageRef, convertido.blob, bytesTransferidosPorArquivo, indice, totalBytes, nomeArquivo);
+      return { nome: nomeArquivo, url };
+    }));
 
-        return {
-          nome: nomeArquivo,
-          tipo: 'application/pdf',
-          url
-        };
-      })
-    );
+    atualizarProgressoUpload(92, '92%');
 
-    // Salvar dados no Firestore
-    const dadosEnvio = {
+    // Salvar metadados no Firestore via client SDK
+    const novoEnvio = {
+      tracking_id,
       nome: document.getElementById('nome').value.trim(),
+      email: document.getElementById('email').value.trim(),
       funcao: document.getElementById('funcao').value.trim(),
       projeto: projetoSelect.value,
       tipo_atestado: tipoAtestado.value,
@@ -933,15 +936,49 @@ form.addEventListener('submit', async (event) => {
       data_inicio: dataInicioISO,
       data_fim: dataFimISO,
       dias: diasEnvio,
-      arquivos: arquivosPayload,
+      arquivos: arquivosUpload,
       criado_em: new Date().toISOString()
     };
-    await window.db.collection('envios_atestados').add(dadosEnvio);
+
+    await window.db.collection('envios_atestados').add(novoEnvio);
+
+    // Enviar email de confirmação via Cloud Function (não-bloqueante)
+    try {
+      const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+      const emailUrl = isLocal
+        ? 'https://normatel-rh.web.app/api/email'
+        : `${window.location.origin}/api/email`;
+      console.log('[Email] Chamando API:', emailUrl);
+      const respostaEmail = await fetch(emailUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(novoEnvio)
+      });
+      if (respostaEmail.ok) {
+        const dados = await respostaEmail.json().catch(() => ({}));
+        console.log('[Email] Enviado com sucesso. ID:', dados.id, '| Para:', dados.para);
+      } else {
+        const erro = await respostaEmail.json().catch(() => ({}));
+        console.error('[Email] Falha na API. Status:', respostaEmail.status, '| Erro:', erro.error || JSON.stringify(erro));
+      }
+    } catch (emailErr) {
+      console.error('[Email] Erro de rede ao chamar API:', emailErr.message);
+    }
+
     atualizarProgressoUpload(100, '100%');
     await registrarEventoBackend('envio_realizado', {
-      projeto: dadosEnvio.projeto,
-      tipo_atestado: dadosEnvio.tipo_atestado
+      projeto: novoEnvio.projeto,
+      tipo_atestado: novoEnvio.tipo_atestado,
+      tracking_id
     });
+
+    sessionStorage.setItem('envio_success_data', JSON.stringify({
+      tracking_id,
+      nome: novoEnvio.nome,
+      email: novoEnvio.email,
+      criado_em: novoEnvio.criado_em
+    }));
+
     window.location.href = 'sucesso.html';
   } catch (error) {
     console.error('Erro ao enviar atestado:', error);

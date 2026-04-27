@@ -1,6 +1,13 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    // Formulário público de envio de atestados (upload direto via client SDK)
+    match /envios/{envioId}/{fileName} {
+      allow write: if request.resource.size < 30 * 1024 * 1024
+                   && request.resource.contentType == 'application/pdf';
+      allow read: if true;
+    }
+    // Rota legada (mantida para compatibilidade)
     match /atestados/{allPaths=**} {
       allow read: if true;
       allow write: if true;

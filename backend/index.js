@@ -4,6 +4,9 @@ import url from 'url';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { v4 as uuidv4 } from 'uuid';
+import PDFDocument from 'pdfkit';
+import nodemailer from 'nodemailer';
 
 function carregarVariaveisDeAmbienteLocal() {
   const arquivoEnv = path.join(path.dirname(fileURLToPath(import.meta.url)), '.env');
@@ -150,6 +153,23 @@ async function inicializarFirestore() {
       const { getStorage } = await import('firebase-admin/storage');
 
       const serviceAccount = obterServiceAccountFirebase();
+
+      if (!serviceAccount) {
+        const jsonPath = String(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '').trim();
+        console.error('');
+        console.error('╔══════════════════════════════════════════════════════════════╗');
+        console.error('║  CREDENCIAIS FIREBASE AUSENTES — BACKEND INOPERANTE          ║');
+        console.error('╠══════════════════════════════════════════════════════════════╣');
+        console.error('║  Arquivo não encontrado: ' + (jsonPath || '(não definido)').padEnd(36) + '║');
+        console.error('║                                                              ║');
+        console.error('║  Como corrigir:                                              ║');
+        console.error('║  1. Acesse Firebase Console → Configurações do projeto       ║');
+        console.error('║  2. Aba "Contas de serviço" → Gerar nova chave privada        ║');
+        console.error('║  3. Salve o JSON em backend/ com o nome acima                ║');
+        console.error('╚══════════════════════════════════════════════════════════════╝');
+        console.error('');
+      }
+
       const bucketConfigurado = String(process.env.FIREBASE_STORAGE_BUCKET || '').trim();
       const projectIdDetectado = serviceAccount?.project_id
         || String(process.env.FIREBASE_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || '').trim();
@@ -260,6 +280,164 @@ async function obterStorageObrigatorio() {
   }
 
   return firebaseStorage.bucket(firebaseStorageBucket);
+}
+
+async function gerarComprovantePDF(envio) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument();
+    const buffers = [];
+
+    doc.on('data', buffers.push.bind(buffers));
+    doc.on('end', () => resolve(Buffer.concat(buffers)));
+    doc.on('error', reject);
+
+    // Header
+    doc.fontSize(20).text('Comprovante de Submissão', { align: 'center' });
+    doc.moveDown();
+
+    // Company info
+    doc.fontSize(12).text('Normatel Engenharia', { align: 'center' });
+    doc.text('Sistema RH - Atestados e Declarações', { align: 'center' });
+    doc.moveDown();
+
+    // Submission details
+    doc.fontSize(14).text('Detalhes da Submissão:');
+    doc.moveDown(0.5);
+
+    doc.fontSize(10);
+    doc.text(`ID de Rastreamento: ${envio.tracking_id}`);
+    doc.text(`Nome: ${envio.nome}`);
+    doc.text(`Email: ${envio.email}`);
+    doc.text(`Função: ${envio.funcao}`);
+    doc.text(`Projeto: ${envio.projeto}`);
+    doc.text(`Tipo de Atestado: ${envio.tipo_atestado}`);
+    doc.text(`Data de Início: ${new Date(envio.data_inicio).toLocaleDateString('pt-BR')}`);
+    doc.text(`Data de Fim: ${new Date(envio.data_fim).toLocaleDateString('pt-BR')}`);
+    doc.text(`Dias: ${envio.dias}`);
+    if (envio.horas_comparecimento) {
+      doc.text(`Horas de Comparecimento: ${envio.horas_comparecimento}`);
+    }
+    doc.text(`Data de Submissão: ${new Date(envio.criado_em).toLocaleString('pt-BR')}`);
+    doc.moveDown();
+
+    // Files
+    if (envio.arquivos && envio.arquivos.length > 0) {
+      doc.text('Arquivos Anexados:');
+      envio.arquivos.forEach((arquivo, index) => {
+        doc.text(`${index + 1}. ${arquivo.nome}`);
+      });
+    }
+    doc.moveDown();
+
+    // Footer
+    doc.text('Este comprovante confirma que o atestado foi recebido pelo sistema RH.');
+    doc.text('Em caso de dúvidas, entre em contato com o departamento de RH.');
+    doc.moveDown();
+    doc.text('Normatel Engenharia - Sistema Automatizado', { align: 'center' });
+
+    doc.end();
+  });
+}
+
+async function enviarEmailComprovante(envio, comprovanteUrl) {
+  const transporter = nodemailer.createTransporter({
+    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+    port: parseInt(process.env.EMAIL_PORT) || 587,
+    secure: false,
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS
+    }
+  });
+
+  const mailOptions = {
+    from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+    to: envio.email,
+    subject: 'Comprovante de Submissão - Atestado RH',
+    html: `
+      <h2>Comprovante de Submissão</h2>
+      <p>Olá ${envio.nome},</p>
+      <p>Seu atestado foi enviado com sucesso para o sistema RH da Normatel Engenharia.</p>
+      <p><strong>Detalhes:</strong></p>
+      <ul>
+        <li>ID de Rastreamento: ${envio.tracking_id}</li>
+        <li>Tipo: ${envio.tipo_atestado}</li>
+        <li>Projeto: ${envio.projeto}</li>
+        <li>Data de Submissão: ${new Date(envio.criado_em).toLocaleString('pt-BR')}</li>
+      </ul>
+      <p>Você pode baixar o comprovante completo em PDF clicando no link abaixo:</p>
+      <p><a href="${comprovanteUrl}">Baixar Comprovante PDF</a></p>
+      <p>Em caso de dúvidas, entre em contato com o RH.</p>
+      <p>Atenciosamente,<br>Sistema RH Normatel</p>
+    `,
+    attachments: [{
+      filename: `comprovante-${envio.tracking_id}.pdf`,
+      content: await gerarComprovantePDF(envio)
+    }]
+  };
+
+  await transporter.sendMail(mailOptions);
+}
+
+async function enviarEmailConfirmacao(envio) {
+  const transporter = nodemailer.createTransporter({
+    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+    port: parseInt(process.env.EMAIL_PORT) || 587,
+    secure: false,
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS
+    }
+  });
+
+  const dataInicioBR = String(envio.data_inicio || '').split('-').reverse().join('/');
+  const dataFimBR = String(envio.data_fim || '').split('-').reverse().join('/');
+  const enviadoEm = new Date(envio.criado_em || Date.now()).toLocaleString('pt-BR');
+
+  await transporter.sendMail({
+    from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+    to: envio.email,
+    subject: `Atestado recebido – ${envio.tipo_atestado} – Normatel RH`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+        <div style="background:#2e7d32;padding:20px;text-align:center">
+          <h1 style="color:#fff;margin:0;font-size:22px">Normatel Engenharia</h1>
+          <p style="color:#c8e6c9;margin:4px 0 0">Sistema RH – Atestados</p>
+        </div>
+        <div style="padding:24px;background:#fff;border:1px solid #e0e0e0">
+          <h2 style="color:#2e7d32;margin-top:0">Atestado recebido com sucesso ✓</h2>
+          <p>Olá <strong>${envio.nome}</strong>,</p>
+          <p>Seu atestado foi registrado no sistema RH da Normatel Engenharia.</p>
+          <table style="width:100%;border-collapse:collapse;margin:16px 0">
+            <tr style="background:#f5f5f5">
+              <td style="padding:8px 12px;border:1px solid #ddd;font-weight:bold;width:40%">Nº de rastreamento</td>
+              <td style="padding:8px 12px;border:1px solid #ddd;font-family:monospace;font-size:16px;color:#2e7d32"><strong>${envio.tracking_id}</strong></td>
+            </tr>
+            <tr>
+              <td style="padding:8px 12px;border:1px solid #ddd;font-weight:bold">Tipo</td>
+              <td style="padding:8px 12px;border:1px solid #ddd">${envio.tipo_atestado}</td>
+            </tr>
+            <tr style="background:#f5f5f5">
+              <td style="padding:8px 12px;border:1px solid #ddd;font-weight:bold">Projeto</td>
+              <td style="padding:8px 12px;border:1px solid #ddd">${envio.projeto}</td>
+            </tr>
+            <tr>
+              <td style="padding:8px 12px;border:1px solid #ddd;font-weight:bold">Período</td>
+              <td style="padding:8px 12px;border:1px solid #ddd">${dataInicioBR} a ${dataFimBR} (${envio.dias} dia(s))</td>
+            </tr>
+            <tr style="background:#f5f5f5">
+              <td style="padding:8px 12px;border:1px solid #ddd;font-weight:bold">Enviado em</td>
+              <td style="padding:8px 12px;border:1px solid #ddd">${enviadoEm}</td>
+            </tr>
+          </table>
+          <p style="color:#666;font-size:13px">Em caso de dúvidas, entre em contato com o departamento de RH.</p>
+        </div>
+        <div style="padding:12px;text-align:center;background:#f5f5f5;font-size:12px;color:#999">
+          Normatel Engenharia – Sistema Automatizado de RH
+        </div>
+      </div>
+    `
+  });
 }
 
 async function listarEnviosDoFirestore(limit) {
@@ -552,6 +730,14 @@ function validarAtestado(dados) {
     erros.push('Nome muito longo (máx 150 caracteres)');
   }
   
+  if (!dados.email || typeof dados.email !== 'string' || dados.email.trim().length === 0) {
+    erros.push('Email é obrigatório');
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(dados.email.trim())) {
+    erros.push('Email inválido');
+  } else if (dados.email.length > 200) {
+    erros.push('Email muito longo (máx 200 caracteres)');
+  }
+  
   if (!dados.funcao || typeof dados.funcao !== 'string' || dados.funcao.trim().length === 0) {
     erros.push('Função é obrigatória');
   } else if (dados.funcao.length > 100) {
@@ -785,8 +971,10 @@ const server = http.createServer(async (req, res) => {
       }
       
       const novoEnvio = {
-        id: Date.now().toString(),
+        id: uuidv4(),
+        tracking_id: uuidv4().substring(0, 8).toUpperCase(),
         nome: body.nome.trim(),
+        email: body.email.trim(),
         funcao: body.funcao.trim(),
         projeto: body.projeto.trim(),
         tipo_atestado: body.tipo_atestado,
@@ -818,11 +1006,54 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      // Gerar comprovante PDF
+      let comprovanteUrl = null;
+      try {
+        const pdfBuffer = await gerarComprovantePDF(novoEnvio);
+        const bucket = await obterStorageObrigatorio();
+        const fileName = `comprovantes/${novoEnvio.id}_comprovante.pdf`;
+        const file = bucket.file(fileName);
+        await file.save(pdfBuffer, {
+          metadata: {
+            contentType: 'application/pdf',
+            metadata: {
+              tracking_id: novoEnvio.tracking_id,
+              user_email: novoEnvio.email
+            }
+          }
+        });
+        await file.makePublic();
+        comprovanteUrl = `https://storage.googleapis.com/${firebaseStorageBucket}/${fileName}`;
+
+        // Atualizar Firestore com URL do comprovante
+        await salvarEnvioNoFirestore({
+          ...novoEnvio,
+          comprovante_url: comprovanteUrl
+        });
+      } catch (pdfError) {
+        console.warn('⚠️ Falha ao gerar comprovante PDF:', pdfError.message);
+        // Não falhar a requisição por causa do PDF
+      }
+
+      // Enviar email de confirmação
+      if (comprovanteUrl && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+        try {
+          await enviarEmailComprovante(novoEnvio, comprovanteUrl);
+        } catch (emailError) {
+          console.warn('⚠️ Falha ao enviar email de confirmação:', emailError.message);
+          // Não falhar a requisição por causa do email
+        }
+      } else {
+        console.warn('⚠️ Email não enviado: configurações de email ausentes ou comprovante não gerado');
+      }
+
       res.writeHead(201);
       res.end(JSON.stringify({
         id: novoEnvio.id,
+        tracking_id: novoEnvio.tracking_id,
         success: true,
         arquivos: novoEnvio.arquivos,
+        comprovante_url: comprovanteUrl,
         firestore: true
       }));
       return;
@@ -1215,6 +1446,45 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Enviar email de confirmação ao colaborador
+    if (pathname === '/api/email' && req.method === 'POST') {
+      if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS
+          || process.env.EMAIL_USER.includes('seu-email')) {
+        res.writeHead(503);
+        res.end(JSON.stringify({
+          error: 'Email não configurado. Preencha EMAIL_USER e EMAIL_PASS no arquivo backend/.env'
+        }));
+        return;
+      }
+
+      let body;
+      try {
+        body = await parseBody(req);
+      } catch (err) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: err.message }));
+        return;
+      }
+
+      const emailDestino = String(body.email || '').trim();
+      if (!emailDestino || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailDestino)) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'Email do destinatário inválido' }));
+        return;
+      }
+
+      try {
+        await enviarEmailConfirmacao(body);
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: true, para: emailDestino }));
+      } catch (emailErr) {
+        console.error('⚠️ Falha ao enviar email:', emailErr.message);
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: `Falha ao enviar email: ${emailErr.message}` }));
+      }
+      return;
+    }
+
     // Health check
     if (pathname === '/api/health' && req.method === 'GET') {
       res.writeHead(200);
@@ -1249,6 +1519,7 @@ server.listen(PORT, () => {
   console.log(`  - GET  /api/envios?limit=100`);
   console.log(`  - GET  /api/arquivos/proxy?url=...&nome=...`);
   console.log(`  - POST /api/envios`);
+  console.log(`  - POST /api/email`);
   console.log(`  - POST /api/envios/status/:id`);
   console.log(`  - POST /api/envios/excluir/:id`);
   console.log(`  - GET  /api/eventos?limit=200`);

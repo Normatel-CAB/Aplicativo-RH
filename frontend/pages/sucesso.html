@@ -19,9 +19,33 @@
       <div class="success-icon" aria-hidden="true">✓</div>
       <h1>Enviado com sucesso</h1>
       <p class="page-subtitle">Seu formulário foi recebido pelo RH.</p>
+      <div id="confirmationDetails" class="confirmation-details" style="display: none;">
+        <p><strong>ID de Rastreamento:</strong> <span id="trackingId"></span></p>
+        <p><strong>Data e Hora:</strong> <span id="submissionTime"></span></p>
+        <p><strong>Email:</strong> <span id="userEmail"></span></p>
+        <p id="receiptLink" style="display: none;"><a id="receiptUrl" href="#" target="_blank">Baixar Comprovante PDF</a></p>
+      </div>
       <a href="index.html" class="success-link">Fazer novo envio</a>
     </section>
   </main>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const data = sessionStorage.getItem('envio_success_data');
+      if (data) {
+        const parsed = JSON.parse(data);
+        document.getElementById('trackingId').textContent = parsed.tracking_id;
+        document.getElementById('submissionTime').textContent = new Date(parsed.criado_em).toLocaleString('pt-BR');
+        document.getElementById('userEmail').textContent = parsed.email;
+        if (parsed.comprovante_url) {
+          document.getElementById('receiptUrl').href = parsed.comprovante_url;
+          document.getElementById('receiptLink').style.display = 'block';
+        }
+        document.getElementById('confirmationDetails').style.display = 'block';
+        sessionStorage.removeItem('envio_success_data');
+      }
+    });
+  </script>
 </body>
 </html>
 

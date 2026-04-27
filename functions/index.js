@@ -1,4 +1,6 @@
 const path = require("path");
+const https = require("https");
+const http = require("http");
 const {setGlobalOptions} = require("firebase-functions/v2");
 const {onRequest} = require("firebase-functions/v2/https");
 const logger = require("firebase-functions/logger");
@@ -20,6 +22,8 @@ const DEFAULT_ALLOWED_ORIGINS = [
   "http://localhost:3000",
   "http://localhost:5500",
   "http://127.0.0.1:5500",
+  "https://normatel-rh.web.app",
+  "https://normatel-rh.firebaseapp.com",
 ];
 
 const ALLOWED_ORIGINS = obterOrigensPermitidas();
@@ -301,6 +305,77 @@ async function salvarArquivosDoEnvioNoStorage(envioId, arquivosEntrada) {
   }
 
   return urls;
+}
+
+async function enviarEmailConfirmacao(envio) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    throw new Error("RESEND_API_KEY não definida nas variáveis de ambiente.");
+  }
+
+  const dataInicioBR = String(envio.data_inicio || "").split("-").reverse().join("/");
+  const dataFimBR = String(envio.data_fim || "").split("-").reverse().join("/");
+  const enviadoEm = new Date(envio.criado_em || Date.now()).toLocaleString("pt-BR");
+
+  const remetente = process.env.EMAIL_FROM || "RH Normatel <onboarding@resend.dev>";
+
+  const resposta = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: remetente,
+      to: [envio.email],
+      subject: `Atestado recebido – ${envio.tipo_atestado} – Normatel RH`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+          <div style="background:#2e7d32;padding:20px;text-align:center">
+            <h1 style="color:#fff;margin:0;font-size:22px">Normatel Engenharia</h1>
+            <p style="color:#c8e6c9;margin:4px 0 0">Sistema RH – Atestados</p>
+          </div>
+          <div style="padding:24px;background:#fff;border:1px solid #e0e0e0">
+            <h2 style="color:#2e7d32;margin-top:0">Atestado recebido com sucesso ✓</h2>
+            <p>Olá <strong>${envio.nome}</strong>,</p>
+            <p>Seu atestado foi registrado no sistema RH da Normatel Engenharia.</p>
+            <table style="width:100%;border-collapse:collapse;margin:16px 0">
+              <tr style="background:#f5f5f5">
+                <td style="padding:8px 12px;border:1px solid #ddd;font-weight:bold;width:40%">Nº de rastreamento</td>
+                <td style="padding:8px 12px;border:1px solid #ddd;font-family:monospace;font-size:16px;color:#2e7d32"><strong>${envio.tracking_id}</strong></td>
+              </tr>
+              <tr>
+                <td style="padding:8px 12px;border:1px solid #ddd;font-weight:bold">Tipo</td>
+                <td style="padding:8px 12px;border:1px solid #ddd">${envio.tipo_atestado}</td>
+              </tr>
+              <tr style="background:#f5f5f5">
+                <td style="padding:8px 12px;border:1px solid #ddd;font-weight:bold">Projeto</td>
+                <td style="padding:8px 12px;border:1px solid #ddd">${envio.projeto}</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 12px;border:1px solid #ddd;font-weight:bold">Período</td>
+                <td style="padding:8px 12px;border:1px solid #ddd">${dataInicioBR} a ${dataFimBR} (${envio.dias} dia(s))</td>
+              </tr>
+              <tr style="background:#f5f5f5">
+                <td style="padding:8px 12px;border:1px solid #ddd;font-weight:bold">Enviado em</td>
+                <td style="padding:8px 12px;border:1px solid #ddd">${enviadoEm}</td>
+              </tr>
+            </table>
+            <p style="color:#666;font-size:13px">Em caso de dúvidas, entre em contato com o departamento de RH.</p>
+          </div>
+          <div style="padding:12px;text-align:center;background:#f5f5f5;font-size:12px;color:#999">
+            Normatel Engenharia – Sistema Automatizado de RH
+          </div>
+        </div>
+      `,
+    }),
+  });
+
+  const dados = await resposta.json();
+  if (!resposta.ok) {
+    throw new Error(`Resend API erro ${resposta.status}: ${dados.message || JSON.stringify(dados)}`);
+  }
+  return dados;
 }
 
 function extrairPathApi(req) {
@@ -650,11 +725,136 @@ async function responderApi(req, res) {
       return;
     }
 
+    if (pathname === "/api/arquivos/proxy" && req.method === "GET") {
+      const urlArquivo = String(req.query.url || "").trim();
+      const nomeArquivo = sanitizarNomeArquivoProxy(req.query.nome || "arquivo.pdf");
+
+      if (!urlArquivo) {
+        res.status(400).json({error: "Parâmetro url é obrigatório"});
+        return;
+      }
+
+      if (!urlProxyPermitida(urlArquivo)) {
+        res.status(403).json({error: "URL não permitida para proxy"});
+        return;
+      }
+
+      try {
+        const remoto = await baixarArquivoRemotoProxy(urlArquivo);
+        res.setHeader("Content-Type", remoto.contentType || "application/octet-stream");
+        res.setHeader("Content-Disposition", `attachment; filename="${nomeArquivo}"`);
+        res.setHeader("Cache-Control", "no-store");
+        res.status(200).send(remoto.buffer);
+        return;
+      } catch (erroFetch) {
+        logger.error("Erro no proxy de arquivo", erroFetch);
+        res.status(502).json({error: `Falha ao baixar arquivo remoto (${erroFetch.message})`});
+        return;
+      }
+    }
+
+    if (pathname === "/api/email" && req.method === "POST") {
+      if (!process.env.RESEND_API_KEY) {
+        res.status(503).json({
+          error: "Email não configurado. Defina RESEND_API_KEY nas variáveis de ambiente das Functions.",
+        });
+        return;
+      }
+
+      const body = await obterBodyJson(req);
+      const emailDestino = String(body.email || "").trim();
+      if (!emailDestino || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailDestino)) {
+        res.status(400).json({error: "Email do destinatário inválido"});
+        return;
+      }
+
+      logger.info("Enviando email de confirmação", {para: emailDestino, tracking: body.tracking_id});
+      try {
+        const resultado = await enviarEmailConfirmacao(body);
+        logger.info("Email enviado com sucesso", {id: resultado.id, para: emailDestino});
+        res.status(200).json({success: true, para: emailDestino, id: resultado.id});
+      } catch (emailErr) {
+        logger.error("Falha ao enviar email via Resend", {erro: emailErr.message, para: emailDestino});
+        res.status(500).json({error: `Falha ao enviar email: ${emailErr.message}`});
+      }
+      return;
+    }
+
     res.status(404).json({error: "Rota não encontrada"});
   } catch (error) {
     logger.error("Erro na API", error);
     res.status(500).json({error: "Erro interno do servidor", detalhe: error.message});
   }
+}
+
+function urlProxyPermitida(urlArquivo) {
+  try {
+    const parsed = new URL(String(urlArquivo || ""));
+    if (!["http:", "https:"].includes(parsed.protocol)) return false;
+    const host = String(parsed.hostname || "").toLowerCase();
+    return host === "firebasestorage.googleapis.com" || host === "storage.googleapis.com";
+  } catch {
+    return false;
+  }
+}
+
+function sanitizarNomeArquivoProxy(nome) {
+  return String(nome || "arquivo.pdf")
+      .replace(/[\\/:*?"<>|]/g, "")
+      .replace(/\s+/g, " ")
+      .trim() || "arquivo.pdf";
+}
+
+function baixarArquivoRemotoProxy(urlArquivo, redirecionamentosRestantes = 3) {
+  return new Promise((resolve, reject) => {
+    let parsed;
+    try {
+      parsed = new URL(String(urlArquivo || ""));
+    } catch {
+      reject(new Error("URL inválida para proxy"));
+      return;
+    }
+
+    const isHttps = parsed.protocol === "https:";
+    const cliente = isHttps ? https : http;
+    const reqRemoto = cliente.request(parsed, {
+      method: "GET",
+      headers: {"User-Agent": "rh-functions-proxy/1.0"},
+    }, (resp) => {
+      const status = Number(resp.statusCode || 0);
+      const location = resp.headers.location;
+
+      if (status >= 300 && status < 400 && location && redirecionamentosRestantes > 0) {
+        const proximaUrl = new URL(location, parsed).toString();
+        resp.resume();
+        baixarArquivoRemotoProxy(proximaUrl, redirecionamentosRestantes - 1)
+            .then(resolve).catch(reject);
+        return;
+      }
+
+      if (status < 200 || status >= 300) {
+        resp.resume();
+        reject(new Error(`HTTP ${status}`));
+        return;
+      }
+
+      const chunks = [];
+      resp.on("data", (chunk) => chunks.push(chunk));
+      resp.on("end", () => {
+        resolve({
+          buffer: Buffer.concat(chunks),
+          contentType: resp.headers["content-type"] || "application/octet-stream",
+        });
+      });
+      resp.on("error", (err) => reject(err));
+    });
+
+    reqRemoto.on("error", (err) => reject(err));
+    reqRemoto.setTimeout(30000, () => {
+      reqRemoto.destroy(new Error("Timeout de 30s no proxy"));
+    });
+    reqRemoto.end();
+  });
 }
 
 exports.api = onRequest({memory: "1GiB", timeoutSeconds: 120}, responderApi);
