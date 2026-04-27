@@ -780,6 +780,7 @@ async function responderApi(req, res) {
       return;
     }
 
+
     res.status(404).json({error: "Rota não encontrada"});
   } catch (error) {
     logger.error("Erro na API", error);
