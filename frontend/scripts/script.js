@@ -781,6 +781,12 @@ function montarFormDataEnvio(arquivosConvertidos) {
 }
 
 tipoAtestado.addEventListener('change', atualizarCampoHoras);
+tipoAtestado.addEventListener('change', salvarRascunho);
+arquivos.addEventListener('change', atualizarPreviewArquivos);
+['nome', 'email', 'funcao'].forEach((id) => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', salvarRascunho);
+});
 dataInicio.addEventListener('input', () => normalizarDigitacaoData(dataInicio));
 dataInicio.addEventListener('change', () => {
   validarDatasNaoFuturas();
@@ -804,6 +810,94 @@ if (rhAccessBtn) {
 }
 
 
+
+// --- Preview de arquivos ---
+let previewObjectUrls = [];
+
+function atualizarPreviewArquivos() {
+  const area = document.getElementById('filePreviewArea');
+  if (!area) return;
+
+  previewObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+  previewObjectUrls = [];
+
+  const lista = Array.from(arquivos.files || []);
+  if (!lista.length) {
+    area.innerHTML = '';
+    area.classList.add('hidden');
+    return;
+  }
+
+  area.innerHTML = '';
+  area.classList.remove('hidden');
+
+  lista.forEach((arquivo) => {
+    const item = document.createElement('div');
+    item.className = 'file-preview-item';
+
+    if (arquivo.type.startsWith('image/')) {
+      const url = URL.createObjectURL(arquivo);
+      previewObjectUrls.push(url);
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = arquivo.name;
+      img.className = 'file-preview-img';
+      item.appendChild(img);
+    } else {
+      const badge = document.createElement('div');
+      badge.className = 'file-preview-badge';
+      badge.textContent = 'PDF';
+      item.appendChild(badge);
+    }
+
+    const info = document.createElement('div');
+    info.className = 'file-preview-info';
+
+    const nome = document.createElement('span');
+    nome.className = 'file-preview-name';
+    nome.textContent = arquivo.name;
+
+    const tamanho = document.createElement('span');
+    tamanho.className = 'file-preview-size';
+    tamanho.textContent = arquivo.size >= 1048576
+      ? `${(arquivo.size / 1048576).toFixed(1)} MB`
+      : `${Math.round(arquivo.size / 1024)} KB`;
+
+    info.appendChild(nome);
+    info.appendChild(tamanho);
+    item.appendChild(info);
+    area.appendChild(item);
+  });
+}
+
+// --- Rascunho automático (localStorage) ---
+const RASCUNHO_KEY = 'rh_rascunho_v1';
+const CAMPOS_RASCUNHO = ['nome', 'email', 'funcao', 'tipoAtestado'];
+
+function salvarRascunho() {
+  const dados = {};
+  CAMPOS_RASCUNHO.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) dados[id] = el.value;
+  });
+  try { localStorage.setItem(RASCUNHO_KEY, JSON.stringify(dados)); } catch {}
+}
+
+function restaurarRascunho() {
+  try {
+    const salvo = JSON.parse(localStorage.getItem(RASCUNHO_KEY) || 'null');
+    if (!salvo) return;
+    CAMPOS_RASCUNHO.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el && salvo[id]) el.value = salvo[id];
+    });
+    if (salvo.tipoAtestado) atualizarCampoHoras();
+  } catch {}
+}
+
+function limparRascunho() {
+  try { localStorage.removeItem(RASCUNHO_KEY); } catch {}
+}
 
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
@@ -979,6 +1073,7 @@ form.addEventListener('submit', async (event) => {
       criado_em: novoEnvio.criado_em
     }));
 
+    limparRascunho();
     window.location.href = 'sucesso.html';
   } catch (error) {
     console.error('Erro ao enviar atestado:', error);
@@ -995,6 +1090,7 @@ form.addEventListener('submit', async (event) => {
 
 atualizarCampoHoras();
 validarDatasNaoFuturas();
+restaurarRascunho();
 registrarEventoBackend('acesso_pagina');
 ocultarProgressoUpload();
 inicializarGateProjeto();

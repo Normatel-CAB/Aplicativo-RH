@@ -1,17 +1,22 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Formulário público de envio de atestados (upload direto via client SDK)
+
+    // Formulário público: upload direto via client SDK
+    // Leitura pública necessária enquanto o dashboard admin não usar Firebase Auth
     match /envios/{envioId}/{fileName} {
       allow write: if request.resource.size < 30 * 1024 * 1024
                    && request.resource.contentType == 'application/pdf';
       allow read: if true;
     }
-    // Rota legada (mantida para compatibilidade)
+
+    // Caminho legado: somente leitura, escrita completamente bloqueada
     match /atestados/{allPaths=**} {
       allow read: if true;
-      allow write: if true;
+      allow write: if false;
     }
+
+    // Tudo o mais: bloqueado
     match /{allPaths=**} {
       allow read, write: if false;
     }

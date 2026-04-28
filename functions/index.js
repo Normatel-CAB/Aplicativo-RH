@@ -3,6 +3,7 @@ const https = require("https");
 const http = require("http");
 const {setGlobalOptions} = require("firebase-functions/v2");
 const {onRequest} = require("firebase-functions/v2/https");
+const {onSchedule} = require("firebase-functions/v2/scheduler");
 const logger = require("firebase-functions/logger");
 const {initializeApp, cert, applicationDefault, getApps} =
   require("firebase-admin/app");
@@ -10,7 +11,7 @@ const {getFirestore} = require("firebase-admin/firestore");
 const {getAuth} = require("firebase-admin/auth");
 const {getStorage} = require("firebase-admin/storage");
 
-setGlobalOptions({maxInstances: 10, region: "us-central1"});
+setGlobalOptions({maxInstances: 10, region: "southamerica-east1"});
 
 const FIRESTORE_COLLECTIONS = {
   envios: "envios_atestados",
@@ -299,7 +300,7 @@ async function salvarArquivosDoEnvioNoStorage(envioId, arquivosEntrada) {
 
     const [urlAssinada] = await file.getSignedUrl({
       action: "read",
-      expires: "03-01-2500",
+      expires: Date.now() + 7 * 24 * 60 * 60 * 1000,
     });
     urls.push(urlAssinada);
   }
@@ -386,6 +387,55 @@ function extrairPathApi(req) {
   return `/api${caminho.startsWith("/") ? "" : "/"}${caminho}`;
 }
 
+const ROTAS_ADMIN = [
+  "/api/usuarios/pendentes",
+  "/api/usuarios/rejeitar/",
+  "/api/envios/status/",
+  "/api/envios/excluir/",
+  "/api/envios/restaurar/",
+  "/api/eventos",
+];
+
+function rotaExigeAdmin(pathname) {
+  return ROTAS_ADMIN.some((prefixo) => pathname.startsWith(prefixo));
+}
+
+function decodificarJwtPayload(token) {
+  try {
+    const partes = String(token || "").split(".");
+    if (partes.length !== 3) return null;
+    return JSON.parse(Buffer.from(partes[1], "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function verificarTokenAdmin(req) {
+  const adminEmails = String(process.env.ADMIN_EMAILS || "")
+      .split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+
+  const authHeader = String(req.headers["authorization"] || "").trim();
+  if (adminEmails.length > 0 && authHeader.startsWith("Bearer ")) {
+    const payload = decodificarJwtPayload(authHeader.slice(7));
+    if (!payload) return false;
+    const agora = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < agora) return false;
+    const email = String(
+        payload.preferred_username || payload.email || payload.upn || ""
+    ).toLowerCase();
+    return Boolean(email) && adminEmails.includes(email);
+  }
+
+  // Fallback: token estático via X-Admin-Token (para integrações externas)
+  const staticToken = String(process.env.ADMIN_TOKEN || "").trim();
+  if (staticToken.length >= 32) {
+    const headerToken = String(req.headers["x-admin-token"] || "").trim();
+    return headerToken.length > 0 && headerToken === staticToken;
+  }
+
+  return false;
+}
+
 async function responderApi(req, res) {
   const origem = req.headers.origin || "unknown";
   const ip = obterIpCliente(req);
@@ -408,6 +458,11 @@ async function responderApi(req, res) {
   const limiteRateLimit = ehRotaEvento ? MAX_EVENT_REQUESTS_PER_MINUTE : MAX_CRITICAL_REQUESTS_PER_MINUTE;
   if (!verificarRateLimit(chaveRateLimit, limiteRateLimit)) {
     res.status(429).json({error: "Muitas requisições. Tente novamente em alguns minutos."});
+    return;
+  }
+
+  if (req.method !== "OPTIONS" && rotaExigeAdmin(pathname) && !verificarTokenAdmin(req)) {
+    res.status(401).json({error: "Não autorizado."});
     return;
   }
 
@@ -863,4 +918,34 @@ exports.api = onRequest({memory: "1GiB", timeoutSeconds: 120}, responderApi);
 exports.apiHealth = onRequest((request, response) => {
   logger.info("RH API online", {structuredData: true});
   response.status(200).json({status: "healthy", service: "functions"});
+});
+
+exports.limparEventosAntigos = onSchedule({
+  schedule: "every monday 03:00",
+  region: "southamerica-east1",
+  timeZone: "America/Sao_Paulo",
+}, async () => {
+  garantirFirebaseInicializado();
+  const db = await obterFirestoreObrigatorio();
+  const trintaDiasAtras = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  let totalRemovidos = 0;
+
+  let snapshot = await db.collection(FIRESTORE_COLLECTIONS.eventos)
+      .where("criado_em", "<", trintaDiasAtras)
+      .limit(500)
+      .get();
+
+  while (!snapshot.empty) {
+    const lote = db.batch();
+    snapshot.docs.forEach((doc) => lote.delete(doc.ref));
+    await lote.commit();
+    totalRemovidos += snapshot.size;
+    if (snapshot.size < 500) break;
+    snapshot = await db.collection(FIRESTORE_COLLECTIONS.eventos)
+        .where("criado_em", "<", trintaDiasAtras)
+        .limit(500)
+        .get();
+  }
+
+  logger.info(`Limpeza concluída: ${totalRemovidos} eventos removidos`);
 });

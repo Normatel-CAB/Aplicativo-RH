@@ -616,6 +616,20 @@
             return dados;
         }
 
+        async function ativarFirebaseAuthComTokenMsal(loginResponse) {
+            try {
+                const auth = await inicializarFirebaseAuth();
+                const provider = new firebase.auth.OAuthProvider('microsoft.com');
+                const credential = provider.credential({
+                    accessToken: loginResponse?.accessToken || '',
+                    idToken: loginResponse?.idToken || ''
+                });
+                await auth.signInWithCredential(credential);
+            } catch (err) {
+                console.warn('[Firebase Auth] Sessão não estabelecida:', err.message);
+            }
+        }
+
         function salvarSessao(account, token, origem = 'login') {
             localStorage.setItem('rh_auth_token', token);
             localStorage.setItem('rh_user_id', account.localAccountId);
@@ -651,6 +665,12 @@
                 localStorage.removeItem('rh_user_email');
                 localStorage.removeItem('rh_user_nome');
                 localStorage.removeItem('rh_user_pendente');
+                try {
+                    if (typeof firebase !== 'undefined' && firebase.apps?.length > 0) {
+                        await firebase.auth().signOut();
+                    }
+                } catch {}
+
 
                 registrarEventoBackend('logout', { email: emailAtual });
 
@@ -761,6 +781,7 @@
 
             definirMensagem(`✅ Login bem-sucedido como ${nome}`, 'success');
             salvarSessao(account, token, 'login_microsoft_redirect');
+            await ativarFirebaseAuthComTokenMsal(loginResponse);
 
             setTimeout(() => {
                 const destino = REDIRECT_AFTER_LOGIN;
@@ -859,8 +880,9 @@
 
                     definirMensagem(`✅ Login bem-sucedido como ${nome}`, 'success');
                 }
-                
+
                 salvarSessao(account, token, 'login_microsoft');
+                await ativarFirebaseAuthComTokenMsal(loginResponse);
 
                 setTimeout(() => {
                     const destino = REDIRECT_AFTER_LOGIN;

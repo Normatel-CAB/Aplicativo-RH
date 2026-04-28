@@ -1,6 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
     function isStatusUsuarioValido(status) {
       return status == 'pendente' || status == 'aprovado' || status == 'rejeitado';
     }
@@ -19,7 +20,8 @@ service cloud.firestore {
     }
 
     function isAtualizacaoModeracaoUsuarioValida() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'aprovado', 'atualizado_em'])
+      return request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['status', 'aprovado', 'atualizado_em'])
         && request.resource.data.email == resource.data.email
         && request.resource.data.nome == resource.data.nome
         && request.resource.data.status is string
@@ -33,7 +35,10 @@ service cloud.firestore {
     }
 
     function isEnvioValido() {
-      return request.resource.data.keys().hasAll(['nome','funcao','projeto','tipo_atestado','data_inicio','data_fim','dias','arquivos','criado_em'])
+      return request.resource.data.keys().hasAll([
+          'nome','funcao','projeto','tipo_atestado',
+          'data_inicio','data_fim','dias','arquivos','criado_em'
+        ])
         && request.resource.data.nome is string
         && request.resource.data.funcao is string
         && request.resource.data.projeto is string
@@ -58,45 +63,69 @@ service cloud.firestore {
     }
 
     function isAtualizacaoAtendimentoEnvioValida() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['atendimento_status', 'atendimento_atualizado_em'])
+      return request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['atendimento_status', 'atendimento_atualizado_em'])
         && request.resource.data.atendimento_status is string
-        && (request.resource.data.atendimento_status == 'feito' || request.resource.data.atendimento_status == 'pendente')
+        && (request.resource.data.atendimento_status == 'feito'
+            || request.resource.data.atendimento_status == 'pendente')
         && request.resource.data.atendimento_atualizado_em is string;
     }
 
     function isSoftDeleteEnvioValido() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['excluido', 'excluido_em'])
+      return request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['excluido', 'excluido_em'])
         && request.resource.data.excluido == true
         && request.resource.data.excluido_em is string;
     }
 
     function isRestauracaoEnvioValida() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['excluido', 'excluido_em'])
+      return request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['excluido', 'excluido_em'])
         && request.resource.data.excluido == false;
     }
 
-    // Necessário para o login RH verificar se o e-mail já existe/aprovado
-    // antes de estabelecer sessão Firebase no cliente.
+    // Usuários RH:
+    // - Leitura autenticada: exige Firebase Auth ativo (estabelecido após login MSAL)
+    // - Exceção: verificar existência do email antes do login (endpoint /api/usuarios/existe)
+    //   é feito via Cloud Function, não diretamente pelo cliente
+    // - Create: registro público com validação de campos obrigatórios
+    // - Update: somente campos de moderação (status/aprovado), feito via Cloud Function
+    // - Delete: bloqueado diretamente; feito apenas via Cloud Function (que usa Admin SDK)
     match /usuarios_rh/{userDoc} {
-      allow read: if true;
-      allow create: if request.auth != null || isCadastroUsuarioValido();
-      allow update: if request.auth != null || isAtualizacaoModeracaoUsuarioValida();
-      allow delete: if true;
+      allow read: if request.auth != null;
+      allow create: if isCadastroUsuarioValido();
+      allow update: if isAtualizacaoModeracaoUsuarioValida();
+      allow delete: if false;
     }
 
-    // Necessário para o painel RH listar os registros sem depender
-    // de sessão Firebase Auth no frontend (fluxo atual usa MSAL).
+    // Atestados enviados:
+    // - Leitura autenticada: exige Firebase Auth ativo
+    // - Create: formulário público com validação de campos obrigatórios
+    // - Update: somente campos permitidos (status de atendimento, soft-delete, restauração)
+    //   exige autenticação para proteger dados médicos dos funcionários
+    // - Delete permanente: bloqueado; app usa apenas soft-delete (excluido: true)
     match /envios_atestados/{envioDoc} {
-      allow read: if true;
+      allow read: if request.auth != null;
       allow create: if isEnvioValido();
       allow update: if request.auth != null
-        || isAtualizacaoAtendimentoEnvioValida()
-        || isSoftDeleteEnvioValido()
-        || isRestauracaoEnvioValida();
-      allow delete: if true;
+                    && (isAtualizacaoAtendimentoEnvioValida()
+                        || isSoftDeleteEnvioValido()
+                        || isRestauracaoEnvioValida());
+      allow delete: if false;
     }
 
-    // Demais dados permanecem restritos a usuário autenticado.
+    // Eventos de frontend: escrita pública com rate-limit na Cloud Function
+    // Leitura apenas autenticada
+    match /eventos_frontend/{eventoDoc} {
+      allow read: if request.auth != null;
+      allow create: if request.resource.data.keys().hasAll(['acao', 'criado_em'])
+                    && request.resource.data.acao is string
+                    && request.resource.data.acao.size() > 0
+                    && request.resource.data.acao.size() <= 80;
+      allow update, delete: if false;
+    }
+
+    // Todo o resto: somente usuário autenticado
     match /{document=**} {
       allow read, write: if request.auth != null;
     }

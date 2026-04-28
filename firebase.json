@@ -7,6 +7,8 @@
   },
   "hosting": {
     "public": ".",
+    "cleanUrls": true,
+    "trailingSlash": false,
     "ignore": [
       "firebase.json",
       "**/.*",
@@ -21,12 +23,36 @@
       "functions/**",
       "vercel.json"
     ],
+    "redirects": [
+      { "source": "/frontend/pages/index.html",            "destination": "/",              "type": 301 },
+      { "source": "/frontend/pages/formulario.html",       "destination": "/formulario",    "type": 301 },
+      { "source": "/frontend/pages/sucesso.html",          "destination": "/sucesso",       "type": 301 },
+      { "source": "/frontend/pages/rh-login.html",         "destination": "/rh/login",      "type": 301 },
+      { "source": "/frontend/pages/account-selector.html", "destination": "/rh/auth",       "type": 301 },
+      { "source": "/frontend/pages/rh-atestados.html",     "destination": "/rh/atestados",  "type": 301 },
+      { "source": "/frontend/pages/rh-admin.html",         "destination": "/rh/admin",      "type": 301 },
+      { "source": "/frontend/pages/rh-aprovacao.html",     "destination": "/rh/aprovacao",  "type": 301 },
+      { "source": "/frontend/pages/rh-projeto.html",       "destination": "/rh/projeto",    "type": 301 },
+      { "source": "/frontend/pages/rh-demandas.html",      "destination": "/rh/demandas",   "type": 301 },
+      { "source": "/frontend/pages/rh-usuarios.html",      "destination": "/rh/usuarios",   "type": 301 }
+    ],
     "rewrites": [
+      { "source": "/",             "destination": "/frontend/pages/index.html" },
+      { "source": "/formulario",   "destination": "/frontend/pages/formulario.html" },
+      { "source": "/sucesso",      "destination": "/frontend/pages/sucesso.html" },
+      { "source": "/rh/login",     "destination": "/frontend/pages/rh-login.html" },
+      { "source": "/rh/auth",      "destination": "/frontend/pages/account-selector.html" },
+      { "source": "/rh/atestados", "destination": "/frontend/pages/rh-atestados.html" },
+      { "source": "/rh/admin",     "destination": "/frontend/pages/rh-admin.html" },
+      { "source": "/rh/aprovacao", "destination": "/frontend/pages/rh-aprovacao.html" },
+      { "source": "/rh/projeto",   "destination": "/frontend/pages/rh-projeto.html" },
+      { "source": "/rh/demandas",  "destination": "/frontend/pages/rh-demandas.html" },
+      { "source": "/rh/usuarios",  "destination": "/frontend/pages/rh-usuarios.html" },
       {
         "source": "/api/**",
         "function": {
           "functionId": "api",
-          "region": "us-central1"
+          "region": "southamerica-east1"
         }
       }
     ],
@@ -61,6 +87,13 @@
         ]
       }
     ]
+  },
+  "emulators": {
+    "functions": {"port": 5001},
+    "firestore": {"port": 8080},
+    "storage": {"port": 9199},
+    "ui": {"enabled": true, "port": 4000},
+    "singleProjectMode": true
   },
   "functions": [
     {

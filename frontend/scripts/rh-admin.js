@@ -649,10 +649,19 @@ async function requisicaoBackendJson(path, options = {}, tentativas = 2) {
   let ultimaResposta = null;
   const endpoint = BACKEND_URL ? `${BACKEND_URL}${path}` : path;
 
+  const token = obterTokenArmazenado();
+  const opcoesComAuth = {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      ...(token ? {'Authorization': `Bearer ${token}`} : {}),
+    },
+  };
+
   for (let i = 0; i <= tentativas; i += 1) {
     let resposta;
     try {
-      resposta = await fetch(endpoint, options);
+      resposta = await fetch(endpoint, opcoesComAuth);
     } catch {
       if (i === tentativas) {
         throw new Error('BACKEND_UNREACHABLE');

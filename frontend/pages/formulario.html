@@ -2,6 +2,7 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
+  <base href="/frontend/pages/" />
   <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
@@ -28,7 +29,7 @@
         <p class="form-top-actions-label">Navegação</p>
         <p class="form-top-actions-text">Se quiser escolher outro projeto, volte para a tela de seleção.</p>
       </div>
-      <a id="formBackToIndexBtn" href="index.html" class="form-back-btn" aria-label="Voltar para seleção de projeto">Voltar para seleção</a>
+      <a id="formBackToIndexBtn" href="/" class="form-back-btn" aria-label="Voltar para seleção de projeto">Voltar para seleção</a>
     </section>
 
     <form id="rh-form" class="card" novalidate>
@@ -100,6 +101,8 @@
           <input type="file" id="arquivos" name="arquivos" class="file-upload-control" multiple required />
           <small class="upload-help">Anexe um ou mais arquivos (PDF, imagem ou documento).</small>
         </label>
+
+        <div id="filePreviewArea" class="file-preview-area hidden full-width" aria-live="polite" aria-label="Pré-visualização dos arquivos selecionados"></div>
       </div>
 
       <button type="submit">Enviar</button>

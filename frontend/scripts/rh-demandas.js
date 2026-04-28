@@ -245,9 +245,17 @@ function iniciarMonitoramentoAcessoRh() {
 
 async function requisicaoBackendJson(url, options = {}, tentativas = 2) {
   let ultimaResposta = null;
+  const token = localStorage.getItem('rh_auth_token');
+  const opcoesComAuth = {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      ...(token ? {'Authorization': `Bearer ${token}`} : {}),
+    },
+  };
 
   for (let i = 0; i <= tentativas; i += 1) {
-    const resposta = await fetch(url, options);
+    const resposta = await fetch(url, opcoesComAuth);
     ultimaResposta = resposta;
 
     if (resposta.ok) {
