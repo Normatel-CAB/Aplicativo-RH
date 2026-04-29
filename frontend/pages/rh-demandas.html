@@ -51,6 +51,21 @@
       </div>
 
       <div class="rh-project-search">
+        <div class="rh-filter-period">
+          <span class="rh-filter-period-title">Filtrar por período</span>
+          <div class="rh-filter-period-inputs">
+            <div class="rh-filter-period-field">
+              <label for="filtroDataInicio">De</label>
+              <input id="filtroDataInicio" type="date" />
+            </div>
+            <span class="rh-filter-period-sep" aria-hidden="true">→</span>
+            <div class="rh-filter-period-field">
+              <label for="filtroDataFim">Até</label>
+              <input id="filtroDataFim" type="date" />
+            </div>
+          </div>
+        </div>
+        <hr class="rh-filter-divider" aria-hidden="true" />
         <label for="filtroCriterioBuscaDemandas">Pesquisar por</label>
         <select id="filtroCriterioBuscaDemandas">
           <option value="projeto">Projeto</option>
@@ -95,6 +110,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
   <script src="../scripts/firebase-config.js"></script>
-  <script src="../scripts/rh-demandas.js?v=20260317c"></script>
+  <script src="../scripts/rh-demandas.js?v=20260429"></script>
 </body>
 </html>

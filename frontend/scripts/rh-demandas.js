@@ -41,6 +41,8 @@ const filtroProjetoSelectDemandasEl = document.getElementById('filtroProjetoSele
 const filtroTipoDemandasEl = document.getElementById('filtroTipoDemandas');
 const limparFiltrosDemandasBtn = document.getElementById('limparFiltrosDemandasBtn');
 const filtroProjetoInfoEl = document.getElementById('filtroProjetoDemandasInfo');
+const filtroDataInicioEl = document.getElementById('filtroDataInicio');
+const filtroDataFimEl = document.getElementById('filtroDataFim');
 const graficoProjetosEl = document.getElementById('graficoProjetos');
 const graficoTiposAtestadoEl = document.getElementById('graficoTiposAtestado');
 const legendaTiposAtestadoEl = document.getElementById('legendaTiposAtestado');
@@ -95,7 +97,9 @@ function obterEstadoDashboardDaUrl() {
     busca: String(params.get('busca') || '').trim(),
     projeto: String(params.get('projeto') || '').trim(),
     tipo: String(params.get('tipo') || '').trim(),
-    aba: String(params.get('aba') || '').trim()
+    aba: String(params.get('aba') || '').trim(),
+    dataInicio: String(params.get('dataInicio') || '').trim(),
+    dataFim: String(params.get('dataFim') || '').trim()
   };
 }
 
@@ -114,6 +118,12 @@ function restaurarEstadoDashboardDaUrl() {
   if (filtroTipoDemandasEl && estado.tipo) {
     filtroTipoDemandasEl.value = estado.tipo;
   }
+  if (filtroDataInicioEl && estado.dataInicio) {
+    filtroDataInicioEl.value = estado.dataInicio;
+  }
+  if (filtroDataFimEl && estado.dataFim) {
+    filtroDataFimEl.value = estado.dataFim;
+  }
 
   if (estado.aba === 'tipos') {
     alternarAbaGrafico('tipos');
@@ -131,6 +141,8 @@ function atualizarUrlEstadoDashboard() {
   const busca = String(filtroProjetoInput?.value || '').trim();
   const projeto = String(filtroProjetoSelectDemandasEl?.value || '').trim();
   const tipo = String(filtroTipoDemandasEl?.value || '').trim();
+  const dataInicio = String(filtroDataInicioEl?.value || '').trim();
+  const dataFim = String(filtroDataFimEl?.value || '').trim();
 
   if (criterio && criterio !== 'projeto') {
     params.set('criterio', criterio);
@@ -143,6 +155,12 @@ function atualizarUrlEstadoDashboard() {
   }
   if (tipo) {
     params.set('tipo', tipo);
+  }
+  if (dataInicio) {
+    params.set('dataInicio', dataInicio);
+  }
+  if (dataFim) {
+    params.set('dataFim', dataFim);
   }
   if (abaGraficoAtiva === 'tipos') {
     params.set('aba', 'tipos');
@@ -184,8 +202,37 @@ function normalizarTextoBusca(valor) {
   return String(valor || '')
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[̀-ͯ]/g, '')
     .trim();
+}
+
+/**
+ * Extracts the numeric identifier from a project name and normalizes it.
+ * "Projeto 743 - Base Cabiunas" → "Projeto 743"
+ * "743 Cabiunas" → "Projeto 743"
+ */
+function normalizarNomeProjeto(nome) {
+  const m = String(nome || '').match(/\b(\d{3,})\b/);
+  return m ? `Projeto ${m[1]}` : (String(nome || '').trim() || 'Projeto não informado');
+}
+
+function filtrarRegistrosPorPeriodo(registros) {
+  const inicio = filtroDataInicioEl?.value
+    ? new Date(`${filtroDataInicioEl.value}T00:00:00`)
+    : null;
+  const fim = filtroDataFimEl?.value
+    ? new Date(`${filtroDataFimEl.value}T23:59:59`)
+    : null;
+
+  if (!inicio && !fim) return registros;
+
+  return registros.filter((r) => {
+    const ts = new Date(r?.criado_em || '');
+    if (!isFinite(ts.getTime())) return false;
+    if (inicio && ts < inicio) return false;
+    if (fim && ts > fim) return false;
+    return true;
+  });
 }
 
 function atualizarPlaceholderBuscaDashboard() {
@@ -316,7 +363,7 @@ function atualizarResumoGeral(registros) {
   }).length;
 
   const projetosAtivos = new Set(
-    lista.map((registro) => String(registro?.projeto || '').trim()).filter(Boolean)
+    lista.map((registro) => normalizarNomeProjeto(registro?.projeto)).filter(Boolean)
   ).size;
 
   totalEnviosEl.textContent = String(lista.length);
@@ -329,7 +376,7 @@ function montarResumoProjetos(registros) {
   const mapa = new Map();
 
   registros.forEach((registro) => {
-    const projeto = String(registro?.projeto || '').trim() || 'Projeto nao informado';
+    const projeto = normalizarNomeProjeto(registro?.projeto);
     const atual = mapa.get(projeto) || { projeto, total: 0 };
     atual.total += 1;
     mapa.set(projeto, atual);
@@ -366,13 +413,14 @@ function preencherFiltroProjetoDemandas(registros) {
   if (!filtroProjetoSelectDemandasEl) return;
 
   const projetoSelecionadoAtual = String(filtroProjetoSelectDemandasEl.value || '').trim();
-  const projetosUnicos = [...new Set(registros
-    .map((registro) => String(registro?.projeto || '').trim())
+
+  const projetosNormalizados = [...new Set(registros
+    .map((r) => normalizarNomeProjeto(r?.projeto))
     .filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
   filtroProjetoSelectDemandasEl.innerHTML = '<option value="">Todos os projetos</option>';
-  projetosUnicos.forEach((projeto) => {
+  projetosNormalizados.forEach((projeto) => {
     const option = document.createElement('option');
     option.value = projeto;
     option.textContent = projeto;
@@ -523,54 +571,71 @@ function renderizarGraficoTiposAtestado(listaTipos) {
   graficoTiposAtestadoEl.appendChild(colunas);
 }
 
+function formatarDataBr(isoDate) {
+  if (!isoDate) return '';
+  return new Date(`${isoDate}T12:00:00`).toLocaleDateString('pt-BR');
+}
+
 function aplicarFiltroProjetoDashboard() {
+  const registrosPeriodo = filtrarRegistrosPorPeriodo(todosRegistros);
+
   const termo = normalizarTextoBusca(filtroProjetoInput.value);
   const criterioBusca = String(filtroCriterioBuscaDemandasEl?.value || 'projeto').trim();
   const projetoSelecionado = String(filtroProjetoSelectDemandasEl?.value || '').trim();
   const tipoSelecionado = String(filtroTipoDemandasEl?.value || '').trim();
 
-  const registrosFiltradosBase = todosRegistros.filter((registro) => {
-    const projetoRegistro = String(registro?.projeto || '').trim();
+  const registrosFiltradosBase = registrosPeriodo.filter((registro) => {
+    const projetoNorm = normalizarNomeProjeto(registro?.projeto);
     const tipoRegistro = String(registro?.tipo_atestado || '').trim();
-
-    const correspondeProjetoSelecionado = !projetoSelecionado || projetoRegistro === projetoSelecionado;
+    const correspondeProjetoSelecionado = !projetoSelecionado || projetoNorm === projetoSelecionado;
     const correspondeTipoSelecionado = !tipoSelecionado || tipoRegistro === tipoSelecionado;
-
     return correspondeProjetoSelecionado && correspondeTipoSelecionado;
   });
 
   const registrosComBusca = !termo
     ? registrosFiltradosBase
     : registrosFiltradosBase.filter((registro) => {
-      const projetoRegistro = normalizarTextoBusca(registro?.projeto);
+      const projetoNorm = normalizarTextoBusca(normalizarNomeProjeto(registro?.projeto));
       const tipoRegistro = normalizarTextoBusca(registro?.tipo_atestado);
       return criterioBusca === 'tipo'
         ? tipoRegistro.includes(termo)
-        : projetoRegistro.includes(termo);
+        : projetoNorm.includes(termo);
     });
 
+  atualizarResumoGeral(registrosPeriodo);
+
   const resumoBase = montarResumoProjetos(registrosComBusca);
-  const filtrados = resumoBase;
+  renderizarGraficoProjetos(resumoBase);
 
-  renderizarGraficoProjetos(filtrados);
-
-  const registrosFiltrados = registrosComBusca;
-  const resumoTipos = montarResumoTiposAtestado(registrosFiltrados);
+  const resumoTipos = montarResumoTiposAtestado(registrosComBusca);
   renderizarGraficoTiposAtestado(resumoTipos);
+
+  const dataInicio = filtroDataInicioEl?.value;
+  const dataFim = filtroDataFimEl?.value;
+  let infoPeriodo = '';
+  if (dataInicio && dataFim) {
+    infoPeriodo = ` | Período: ${formatarDataBr(dataInicio)} – ${formatarDataBr(dataFim)}`;
+  } else if (dataInicio) {
+    infoPeriodo = ` | A partir de ${formatarDataBr(dataInicio)}`;
+  } else if (dataFim) {
+    infoPeriodo = ` | Até ${formatarDataBr(dataFim)}`;
+  }
 
   if (!termo) {
     if (projetoSelecionado && tipoSelecionado) {
-      filtroProjetoInfoEl.textContent = `Mostrando projeto "${projetoSelecionado}" no tipo "${tipoSelecionado}".`;
+      filtroProjetoInfoEl.textContent = `Mostrando projeto "${projetoSelecionado}" no tipo "${tipoSelecionado}".${infoPeriodo}`;
     } else if (projetoSelecionado) {
-      filtroProjetoInfoEl.textContent = `Mostrando projeto "${projetoSelecionado}".`;
+      filtroProjetoInfoEl.textContent = `Mostrando projeto "${projetoSelecionado}".${infoPeriodo}`;
     } else if (tipoSelecionado) {
-      filtroProjetoInfoEl.textContent = `Mostrando todos os projetos para o tipo "${tipoSelecionado}".`;
+      filtroProjetoInfoEl.textContent = `Mostrando todos os projetos para o tipo "${tipoSelecionado}".${infoPeriodo}`;
     } else {
-      filtroProjetoInfoEl.textContent = 'Mostrando todos os projetos em andamento.';
+      filtroProjetoInfoEl.textContent = infoPeriodo
+        ? `Mostrando todos os projetos.${infoPeriodo}`
+        : 'Mostrando todos os projetos em andamento.';
     }
   } else {
     const alvo = criterioBusca === 'tipo' ? 'tipo(s)' : 'projeto(s)';
-    filtroProjetoInfoEl.textContent = `Busca por ${alvo}: ${resumoBase.length} resultado(s).`;
+    filtroProjetoInfoEl.textContent = `Busca por ${alvo}: ${resumoBase.length} resultado(s).${infoPeriodo}`;
   }
 
   atualizarUrlEstadoDashboard();
@@ -586,6 +651,12 @@ function limparFiltrosDashboard() {
   if (filtroTipoDemandasEl) {
     filtroTipoDemandasEl.value = '';
   }
+  if (filtroDataInicioEl) {
+    filtroDataInicioEl.value = '';
+  }
+  if (filtroDataFimEl) {
+    filtroDataFimEl.value = '';
+  }
 
   aplicarFiltroProjetoDashboard();
 }
@@ -595,7 +666,6 @@ async function carregarDashboardDemandas() {
 
   try {
     todosRegistros = await carregarEnviosComFallback();
-    atualizarResumoGeral(todosRegistros);
 
     resumoProjetos = montarResumoProjetos(todosRegistros);
     preencherFiltroProjetoDemandas(todosRegistros);
@@ -630,6 +700,14 @@ if (filtroProjetoSelectDemandasEl) {
 
 if (filtroTipoDemandasEl) {
   filtroTipoDemandasEl.addEventListener('change', aplicarFiltroProjetoDashboard);
+}
+
+if (filtroDataInicioEl) {
+  filtroDataInicioEl.addEventListener('change', aplicarFiltroProjetoDashboard);
+}
+
+if (filtroDataFimEl) {
+  filtroDataFimEl.addEventListener('change', aplicarFiltroProjetoDashboard);
 }
 
 if (limparFiltrosDemandasBtn) {
