@@ -516,12 +516,11 @@ async function responderApi(req, res) {
     }
 
     if (pathname === "/api/envios" && req.method === "GET") {
-      const limit = Math.min(parseInt(req.query.limit, 10) || 100, 1000);
       const db = await obterFirestoreObrigatorio();
-      const snapshot = await db.collection(FIRESTORE_COLLECTIONS.envios)
-          .orderBy("criado_em", "desc")
-          .limit(limit)
-          .get();
+      let query = db.collection(FIRESTORE_COLLECTIONS.envios).orderBy("criado_em", "desc");
+      const limitParam = parseInt(req.query.limit, 10);
+      if (limitParam > 0) query = query.limit(limitParam);
+      const snapshot = await query.get();
 
       const data = snapshot.docs.map((doc) => ({id: doc.id, ...(doc.data() || {})}));
       res.status(200).json(data);

@@ -27,13 +27,14 @@ function fazerLogout() {
   localStorage.removeItem('rh_user_email');
   localStorage.removeItem('rh_user_nome');
   localStorage.removeItem('rh_user_pendente');
+  if (window.RHPermissions) window.RHPermissions.clearRole();
   registrarEventoBackend('logout', { email: emailAtual });
   window.location.href = 'index.html';
 }
 
 function irParaAdmin() {
   registrarEventoBackend('abrir_admin');
-  window.location.href = 'rh-admin.html';
+  window.location.href = 'rh-usuarios.html';
 }
 
 function irParaDashboardDemandas() {

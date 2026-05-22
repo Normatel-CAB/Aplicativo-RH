@@ -48,7 +48,7 @@
             </div>
 
             <p id="statusMessage" class="status-message status-toast" role="status" aria-live="polite"></p>
-            <div id="userInfo" class="account-user-info" style="display: none;">
+            <div id="userInfo" class="account-user-info hidden">
                 Usuário logado: <strong id="loggedUserName"></strong>
                 <button id="logoutBtn" class="rh-logout-btn" onclick="sairConta()">Sair</button>
             </div>
@@ -61,9 +61,9 @@
     <script src="../assets/vendor/msal-browser.min.js"></script>
 
     <!-- Firebase Auth (compat) para cadastro direto no Authentication -->
-    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     <script src="../scripts/firebase-config.js?v=20260305a"></script>
     
     <!-- Configuração do MSAL -->
@@ -219,14 +219,14 @@
 
             if (pendente) {
                 definirMensagem('⏳ Seu cadastro está pendente de aprovação do administrador. Tente entrar novamente após a aprovação.', 'loading');
-                document.getElementById('userInfo').style.display = 'none';
+                document.getElementById('userInfo').classList.add('hidden');
                 return false;
             }
 
             if (token && email) {
                 // Usuário já tem sessão ativa
                 document.getElementById('loggedUserName').textContent = nome || email;
-                document.getElementById('userInfo').style.display = 'block';
+                document.getElementById('userInfo').classList.remove('hidden');
                 return true;
             }
             return false;
@@ -648,6 +648,21 @@
             document.getElementById('userInfo').style.display = 'block';
         }
 
+        async function sincronizarRoleParaLocalStorage(email) {
+            try {
+                if (typeof firebase === 'undefined') return;
+                const snap = await firebase.firestore()
+                    .collection('usuarios_rh')
+                    .where('email', '==', String(email || '').toLowerCase().trim())
+                    .limit(1)
+                    .get();
+                if (!snap.empty) {
+                    const role = String(snap.docs[0].data().role || 'colaborador').toLowerCase().trim();
+                    localStorage.setItem('rh_user_role', role === 'admin' ? 'admin' : 'colaborador');
+                }
+            } catch (_) { /* silently ignore — sincronizarRole() no painel fará a sync */ }
+        }
+
         async function sairConta() {
             try {
                 if (msalInstance) {
@@ -665,6 +680,7 @@
                 localStorage.removeItem('rh_user_email');
                 localStorage.removeItem('rh_user_nome');
                 localStorage.removeItem('rh_user_pendente');
+                localStorage.removeItem('rh_user_role');
                 try {
                     if (typeof firebase !== 'undefined' && firebase.apps?.length > 0) {
                         await firebase.auth().signOut();
@@ -674,7 +690,7 @@
 
                 registrarEventoBackend('logout', { email: emailAtual });
 
-                document.getElementById('userInfo').style.display = 'none';
+                document.getElementById('userInfo').classList.add('hidden');
                 definirMensagem('✅ Sessão encerrada com sucesso.', 'success');
             }
         }
@@ -781,6 +797,7 @@
 
             definirMensagem(`✅ Login bem-sucedido como ${nome}`, 'success');
             salvarSessao(account, token, 'login_microsoft_redirect');
+            await sincronizarRoleParaLocalStorage(email);
             await ativarFirebaseAuthComTokenMsal(loginResponse);
 
             setTimeout(() => {
@@ -844,8 +861,6 @@
                     throw erroPopupMsal;
                 }
                 
-                console.log('✅ Login bem-sucedido:', loginResponse);
-                
                 const account = loginResponse.account;
                 const token = await obterTokenValidoMsal(account, loginResponse);
                 const email = (account.username || '').toLowerCase();
@@ -882,6 +897,7 @@
                 }
 
                 salvarSessao(account, token, 'login_microsoft');
+                await sincronizarRoleParaLocalStorage(email);
                 await ativarFirebaseAuthComTokenMsal(loginResponse);
 
                 setTimeout(() => {
@@ -963,11 +979,6 @@
                     msalInstance = new msal.PublicClientApplication(msalConfig);
                     await msalInstance.initialize();
                     msalReady = true;
-                    console.log('✅ MSAL.js inicializado');
-                    console.log('   Client ID:', msalConfig.auth.clientId);
-                    console.log('   Tenant:', msalConfig.auth.authority);
-                    console.log('   Redirect URI:', msalConfig.auth.redirectUri);
-
                     definirBotoesAuthHabilitados(true);
                     limparMensagem();
 

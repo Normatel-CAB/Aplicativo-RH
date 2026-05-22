@@ -3,6 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%235fbe4a'/%3E%3Cpath d='M14 34h36v8H14zM14 22h36v8H14z' fill='white'/%3E%3C/svg%3E" />
   <title>Aprovação de Usuários RH</title>
   <link rel="stylesheet" href="../styles/styles.css" />
 </head>
@@ -19,9 +24,9 @@
       <div id="usuariosPendentes"></div>
     </section>
   </main>
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
   <script>
     // Configuração do Firebase
     const firebaseConfig = {
@@ -32,11 +37,14 @@
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
 
-    // Função para aprovar usuário
-    async function aprovarUsuario(docId, nome) {
+    const _docIds = new Map();
+
+    async function aprovarUsuario(chave) {
+      const docId = _docIds.get(chave);
+      if (!docId) return;
       try {
         await db.collection('usuarios_rh').doc(docId).update({ status: 'aprovado' });
-        mostrarMensagem(`✅ Usuário ${nome} aprovado!`, 'success');
+        mostrarMensagem('Usuário aprovado com sucesso!', 'success');
         carregarPendentes();
       } catch (e) {
         mostrarMensagem('Erro ao aprovar usuário: ' + e.message, 'error');
@@ -54,29 +62,48 @@
 
     async function carregarPendentes() {
       const container = document.getElementById('usuariosPendentes');
-      container.innerHTML = 'Carregando...';
+      container.textContent = 'Carregando...';
+      _docIds.clear();
       const snap = await db.collection('usuarios_rh').where('status', '==', 'pendente').get();
       if (snap.empty) {
-        container.innerHTML = '<div class="status-vazio">Nenhum usuário pendente de aprovação.</div>';
+        container.textContent = '';
+        const vazio = document.createElement('div');
+        vazio.className = 'status-vazio';
+        vazio.textContent = 'Nenhum usuário pendente de aprovação.';
+        container.appendChild(vazio);
         return;
       }
-      container.innerHTML = '';
-      snap.forEach(doc => {
+      container.textContent = '';
+      snap.forEach((doc, idx) => {
         const u = doc.data();
+        const chave = `u${idx}`;
+        _docIds.set(chave, doc.id);
+
         const div = document.createElement('div');
         div.className = 'usuario-item';
-        div.innerHTML = `
-          <div class="usuario-info">
-            <div class="usuario-nome">${u.nome || u.email}</div>
-            <div class="usuario-email">${u.email}</div>
-          </div>
-          <button class="btn-aprovar" onclick="aprovarUsuario('${doc.id}','${u.nome || u.email}')">Aprovar</button>
-        `;
+
+        const info = document.createElement('div');
+        info.className = 'usuario-info';
+        const nome = document.createElement('div');
+        nome.className = 'usuario-nome';
+        nome.textContent = u.nome || u.email || '';
+        const email = document.createElement('div');
+        email.className = 'usuario-email';
+        email.textContent = u.email || '';
+        info.appendChild(nome);
+        info.appendChild(email);
+
+        const btn = document.createElement('button');
+        btn.className = 'btn-aprovar';
+        btn.textContent = 'Aprovar';
+        btn.addEventListener('click', () => aprovarUsuario(chave));
+
+        div.appendChild(info);
+        div.appendChild(btn);
         container.appendChild(div);
       });
     }
 
-    window.aprovarUsuario = aprovarUsuario;
     carregarPendentes();
   </script>
 </body>

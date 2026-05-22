@@ -850,20 +850,13 @@ async function rejeitarUsuario(usuarioId, usuarioNome) {
 // Inicializar quando DOM estiver pronto
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
-    console.log('✅ DOMContentLoaded disparado em rh-admin.js');
     if (verificarAutenticacao()) {
-      const nomeUsuario = obterNomeArmazenado();
-      console.log(`👤 Usuário autenticado: ${nomeUsuario}`);
       iniciarMonitoramentoAcessoRh();
       carregarUsuariosPendentes();
     }
   });
 } else {
-  // DOM já carregado
-  console.log('✅ DOM já estava carregado em rh-admin.js');
   if (verificarAutenticacao()) {
-    const nomeUsuario = obterNomeArmazenado();
-    console.log(`👤 Usuário autenticado: ${nomeUsuario}`);
     iniciarMonitoramentoAcessoRh();
     carregarUsuariosPendentes();
   }

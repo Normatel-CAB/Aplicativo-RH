@@ -36,57 +36,21 @@
         <input type="text" id="gateProjetoFiltro" placeholder="Digite numero ou nome da base" autocomplete="off" />
       </label>
       <p id="gateProjetoFiltroInfo" class="project-filter-info">Mostrando todos os projetos.</p>
-      <div class="projetos-cards project-gate-cards" aria-label="Selecionar projeto">
-        <button type="button" class="projeto-card gate-projeto-card" data-projeto="Projeto 736 - Base Imbetiba" onclick="window.__gateFallbackSelectProjeto && window.__gateFallbackSelectProjeto(this.dataset.projeto)">
-          <strong>Projeto 736</strong>
-          <span>Base Imbetiba</span>
-        </button>
-        <button type="button" class="projeto-card gate-projeto-card" data-projeto="Projeto 737 - Base Imboassica" onclick="window.__gateFallbackSelectProjeto && window.__gateFallbackSelectProjeto(this.dataset.projeto)">
-          <strong>Projeto 737</strong>
-          <span>Base Imboassica</span>
-        </button>
-        <button type="button" class="projeto-card gate-projeto-card" data-projeto="Projeto 743 - Base Cabiunas" onclick="window.__gateFallbackSelectProjeto && window.__gateFallbackSelectProjeto(this.dataset.projeto)">
-          <strong>Projeto 743</strong>
-          <span>Base Cabiunas</span>
-        </button>
-        <button type="button" class="projeto-card gate-projeto-card" data-projeto="Projeto 743 - Severina" onclick="window.__gateFallbackSelectProjeto && window.__gateFallbackSelectProjeto(this.dataset.projeto)">
-          <strong>Projeto 743</strong>
-          <span>Severina</span>
-        </button>
-        <button type="button" class="projeto-card gate-projeto-card" data-projeto="Projeto 743 - Barra do Furado" onclick="window.__gateFallbackSelectProjeto && window.__gateFallbackSelectProjeto(this.dataset.projeto)">
-          <strong>Projeto 743</strong>
-          <span>Barra do Furado</span>
-        </button>
-        <button type="button" class="projeto-card gate-projeto-card" data-projeto="Projeto 741 - Base UTE" onclick="window.__gateFallbackSelectProjeto && window.__gateFallbackSelectProjeto(this.dataset.projeto)">
-          <strong>Projeto 741</strong>
-          <span>Base UTE</span>
-        </button>
-        <button type="button" class="projeto-card gate-projeto-card" data-projeto="Projeto 741 - Base Áreas Externa" onclick="window.__gateFallbackSelectProjeto && window.__gateFallbackSelectProjeto(this.dataset.projeto)">
-          <strong>Projeto 741</strong>
-          <span>Base Áreas Externa</span>
-        </button>
-        <button type="button" class="projeto-card gate-projeto-card" data-projeto="Projeto 741 - Base Tapera" onclick="window.__gateFallbackSelectProjeto && window.__gateFallbackSelectProjeto(this.dataset.projeto)">
-          <strong>Projeto 741</strong>
-          <span>Base Tapera</span>
-        </button>
-        <button type="button" class="projeto-card gate-projeto-card" data-projeto="Apoio Macae" onclick="window.__gateFallbackSelectProjeto && window.__gateFallbackSelectProjeto(this.dataset.projeto)">
-          <strong>Apoio Macae</strong>
-          <span>Base de apoio</span>
-        </button>
+
+      <!-- container dinâmico — populado por JavaScript -->
+      <div id="gateProjetosCards" class="projetos-cards project-gate-cards" aria-label="Selecionar projeto">
+        <!-- skeletons de carregamento -->
+        <div class="projeto-card-skeleton" aria-hidden="true"></div>
+        <div class="projeto-card-skeleton" aria-hidden="true"></div>
+        <div class="projeto-card-skeleton" aria-hidden="true"></div>
+        <div class="projeto-card-skeleton" aria-hidden="true"></div>
+        <div class="projeto-card-skeleton" aria-hidden="true"></div>
       </div>
+
       <button type="button" id="gateContinuarBtn" class="gate-continuar-btn" disabled>Continuar</button>
 
       <select id="gateProjeto" class="hidden" aria-hidden="true" tabindex="-1">
         <option value="">Selecione um projeto</option>
-        <option value="Projeto 736 - Base Imbetiba">Projeto 736 - Base Imbetiba</option>
-        <option value="Projeto 737 - Base Imboassica">Projeto 737 - Base Imboassica</option>
-        <option value="Projeto 743 - Base Cabiunas">Projeto 743 - Base Cabiunas</option>
-        <option value="Projeto 743 - Severina">Projeto 743 - Severina</option>
-        <option value="Projeto 743 - Barra do Furado">Projeto 743 - Barra do Furado</option>
-        <option value="Projeto 741 - Base UTE">Projeto 741 - Base UTE</option>
-        <option value="Projeto 741 - Base Áreas Externa">Projeto 741 - Base Áreas Externa</option>
-        <option value="Projeto 741 - Base Tapera">Projeto 741 - Base Tapera</option>
-        <option value="Apoio Macae">Apoio Macae</option>
       </select>
       <p id="projectGateInfo" class="status-message status-message--info status-toast">Selecione o projeto para continuar.</p>
     </section>
@@ -115,6 +79,7 @@
             <option value="Projeto 741 - Base UTE">Projeto 741 - Base UTE</option>
             <option value="Projeto 741 - Base Áreas Externa">Projeto 741 - Base Áreas Externa</option>
             <option value="Projeto 741 - Base Tapera">Projeto 741 - Base Tapera</option>
+            <option value="Projeto 742 - Base Cenpes">Projeto 742 - Base Cenpes</option>
             <option value="Apoio Macae">Apoio Macae</option>
           </select>
         </label>
@@ -189,6 +154,142 @@
   </script>
   <script src="../scripts/firebase-config.js?v=20260226b"></script>
   <script src="../scripts/script.js?v=20260309v"></script>
+  <script>
+  // Carregamento dinâmico de projetos do Firestore
+  (function () {
+    'use strict';
+
+    var PROJETOS_PADRAO = [
+      { valor: 'Projeto 736 - Base Imbetiba',    codigo: '736', titulo: 'Projeto 736', subtitulo: 'Base Imbetiba' },
+      { valor: 'Projeto 737 - Base Imboassica',   codigo: '737', titulo: 'Projeto 737', subtitulo: 'Base Imboassica' },
+      { valor: 'Projeto 743 - Base Cabiunas',     codigo: '743', titulo: 'Projeto 743', subtitulo: 'Base Cabiunas' },
+      { valor: 'Projeto 743 - Severina',          codigo: '743', titulo: 'Projeto 743', subtitulo: 'Severina' },
+      { valor: 'Projeto 743 - Barra do Furado',   codigo: '743', titulo: 'Projeto 743', subtitulo: 'Barra do Furado' },
+      { valor: 'Projeto 741 - Base UTE',          codigo: '741', titulo: 'Projeto 741', subtitulo: 'Base UTE' },
+      { valor: 'Projeto 741 - Base Áreas Externa',codigo: '741', titulo: 'Projeto 741', subtitulo: 'Base Áreas Externa' },
+      { valor: 'Projeto 741 - Base Tapera',       codigo: '741', titulo: 'Projeto 741', subtitulo: 'Base Tapera' },
+      { valor: 'Projeto 742 - Base Cenpes',         codigo: '742', titulo: 'Projeto 742', subtitulo: 'Base: Cenpes' },
+      { valor: 'Apoio Macae',                     codigo: '744', titulo: 'Apoio Macaé', subtitulo: 'Base de apoio' }
+    ];
+
+    function projetoParaValorFormulario(p) {
+      if (p.codigo && p.base) return 'Projeto ' + p.codigo + ' - ' + p.base;
+      if (p.codigo) return 'Projeto ' + p.codigo + ' - ' + p.nome;
+      return p.nome || '';
+    }
+
+    function renderizarCards(lista) {
+      var container    = document.getElementById('gateProjetosCards');
+      var selectGate   = document.getElementById('gateProjeto');
+      var selectForm   = document.getElementById('projeto');
+      if (!container) return;
+
+      container.innerHTML = '';
+
+      // limpa selects dinâmicos (mantém option vazia)
+      if (selectGate) { while (selectGate.options.length > 1) selectGate.remove(1); }
+
+      // coleta valores já presentes no select do formulário para não duplicar
+      var valoresFormExistentes = selectForm
+        ? Array.from(selectForm.options).map(function (o) { return o.value; })
+        : [];
+
+      lista.forEach(function (p) {
+        var valor     = p.valor || projetoParaValorFormulario(p);
+        var titulo    = p.titulo    || (p.codigo ? 'Projeto ' + p.codigo : p.nome) || '';
+        var subtitulo = p.subtitulo || p.base || p.nome || '';
+
+        // card clicável
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'projeto-card gate-projeto-card';
+        btn.setAttribute('data-projeto', valor);
+        btn.onclick = function () {
+          if (window.__gateFallbackSelectProjeto) window.__gateFallbackSelectProjeto(valor);
+        };
+        var strong = document.createElement('strong');
+        strong.textContent = titulo;
+        var span = document.createElement('span');
+        span.textContent = subtitulo;
+        btn.appendChild(strong);
+        btn.appendChild(span);
+        container.appendChild(btn);
+
+        // option no select oculto do gate
+        if (selectGate) {
+          var optG = document.createElement('option');
+          optG.value = valor;
+          optG.textContent = valor;
+          selectGate.appendChild(optG);
+        }
+
+        // option no select do formulário (necessário para bloquearCampoProjeto)
+        if (selectForm && valoresFormExistentes.indexOf(valor) === -1) {
+          var optF = document.createElement('option');
+          optF.value = valor;
+          optF.textContent = valor;
+          selectForm.appendChild(optF);
+          valoresFormExistentes.push(valor);
+        }
+      });
+
+      // dispara evento para que script.js aplique filtros existentes
+      document.dispatchEvent(new CustomEvent('projetos-carregados'));
+    }
+
+    function carregarDoFirestore() {
+      if (typeof window.firebase === 'undefined' || typeof window.firebase.firestore !== 'function') {
+        renderizarCards(PROJETOS_PADRAO);
+        return;
+      }
+
+      try {
+        window.firebase.firestore()
+          .collection('projetos')
+          .orderBy('criado_em', 'desc')
+          .onSnapshot(
+            function (snap) {
+              var projetos = snap.docs
+                .map(function (d) { return Object.assign({ id: d.id }, d.data()); })
+                .filter(function (p) { return !p.excluido && p.status !== 'inativo'; });
+
+              // Sempre mostra os padrões + os novos criados pelo RH
+            var dinamicos = projetos.map(function (p) {
+              return {
+                valor: (p.codigo ? 'Projeto ' + p.codigo + ' - ' + (p.base || p.nome) : p.nome),
+                codigo: p.codigo || '',
+                titulo: p.codigo ? 'Projeto ' + p.codigo : p.nome,
+                subtitulo: p.base || p.nome || ''
+              };
+            });
+            renderizarCards(PROJETOS_PADRAO.concat(dinamicos));
+            },
+            function () {
+              renderizarCards(PROJETOS_PADRAO);
+            }
+          );
+      } catch (e) {
+        renderizarCards(PROJETOS_PADRAO);
+      }
+    }
+
+    // aguarda Firebase inicializar antes de consultar
+    function aguardarFirebase(tentativas) {
+      if (tentativas <= 0) { renderizarCards(PROJETOS_PADRAO); return; }
+      if (typeof window.firebase !== 'undefined' && typeof window.firebase.firestore === 'function') {
+        carregarDoFirestore();
+      } else {
+        setTimeout(function () { aguardarFirebase(tentativas - 1); }, 200);
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function () { aguardarFirebase(15); });
+    } else {
+      aguardarFirebase(15);
+    }
+  })();
+  </script>
 </body>
 </html>
 

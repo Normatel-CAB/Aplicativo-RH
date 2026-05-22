@@ -5,7 +5,6 @@ let tabelaBody = null;
 let sairRhBtn = null;
 let gerenciarUsuariosBtn = null;
 let usuarioLogadoInfo = null;
-let projetoCards = [];
 let listaStatusTimer = null;
 const DEFAULT_REMOTE_BACKEND_URL = '';
 
@@ -50,17 +49,6 @@ function inicializarElementosDom() {
   sairRhBtn = document.getElementById('sairRhBtn');
   gerenciarUsuariosBtn = document.getElementById('gerenciarUsuariosBtn');
   usuarioLogadoInfo = document.getElementById('usuarioLogadoInfo');
-  projetoCards = Array.from(document.querySelectorAll('.projeto-card'));
-  
-  console.log('✅ Elementos DOM inicializados:', {
-    listaStatus: !!listaStatus,
-    tabelaWrapper: !!tabelaWrapper,
-    tabelaBody: !!tabelaBody,
-    sairRhBtn: !!sairRhBtn,
-    gerenciarUsuariosBtn: !!gerenciarUsuariosBtn,
-    usuarioLogadoInfo: !!usuarioLogadoInfo,
-    projetoCards: projetoCards.length
-  });
 }
 
 function atualizarUsuarioLogado() {
@@ -362,6 +350,15 @@ function iniciarMonitoramentoAcessoRh() {
         const aprovado = usuario.aprovado === true || status === 'aprovado';
         if (!aprovado) {
           forcarLogoutPorRevogacaoAcesso();
+          return;
+        }
+        // Atualiza role em tempo real caso seja alterado por outro admin
+        if (window.RHPermissions && usuario.role) {
+          const rolePrev = window.RHPermissions.getRole();
+          window.RHPermissions.setRole(usuario.role);
+          if (rolePrev !== window.RHPermissions.getRole()) {
+            window.RHPermissions.aplicarPermissoesUI();
+          }
         }
       }, () => { /* erro de transporte — SDK reconecta automaticamente */ });
   } catch {
@@ -413,7 +410,7 @@ async function carregarEnviosComFallback() {
     }
 
     try {
-      const dados = await requisicaoBackendJson(`${backendBase}/api/envios?limit=1000`);
+      const dados = await requisicaoBackendJson(`${backendBase}/api/envios?limit=10000`);
       return Array.isArray(dados) ? dados : [];
     } catch {
       throw new Error(`Backend indisponível (${backendBase}) e Firestore sem permissão para envios_atestados.`);
@@ -473,7 +470,6 @@ function criarLinhaRegistro(record) {
     arquivos.forEach((arquivo, indice) => {
       const urlArquivo = arquivo.url || arquivo;
       if (!validarUrl(urlArquivo)) {
-        console.warn('URL de arquivo inválida:', urlArquivo);
         return;
       }
       const nomeExibicao = obterNomeArquivoEnviado(arquivo, record, indice, arquivos.length);
@@ -508,7 +504,7 @@ function criarLinhaRegistro(record) {
 }
 
 function atualizarEstadoAbasProjeto() {
-  projetoCards.forEach((card) => {
+  document.querySelectorAll('.projeto-card').forEach((card) => {
     const ativo = card.dataset.projeto === projetoSelecionado;
     card.classList.toggle('active', ativo);
     card.setAttribute('aria-selected', ativo ? 'true' : 'false');
@@ -570,14 +566,8 @@ async function carregarAtestados() {
   }
 }
 
-function adicionarEventListeners() {
-  console.log('✅ Event listeners já gerenciados pelo HTML onclick');
-  // Os event listeners agora estão no HTML com onclick direto
-}
 
-// Inicialização simples
 function inicializarDashboard() {
-  console.log('✅ Inicializando dashboard RH');
   inicializarElementosDom();
   atualizarUsuarioLogado();
   iniciarSincronizacaoUsuarioLogado();
@@ -586,15 +576,14 @@ function inicializarDashboard() {
     tabelaWrapper.classList.add('hidden');
   }
   setListaStatus('');
-  
-  // Mostrar botão de admin
-  if (gerenciarUsuariosBtn) {
-    gerenciarUsuariosBtn.classList.remove('hidden');
-    console.log('✅ Botão admin visível');
-  }
-
   iniciarMonitoramentoAcessoRh();
 
+  // Sincroniza cargo do usuário e aplica permissões na UI
+  if (window.RHPermissions) {
+    window.RHPermissions.sincronizarRole().then(() => {
+      window.RHPermissions.aplicarPermissoesUI();
+    });
+  }
 }
 
 // Executar quando DOM está pronto

@@ -51,7 +51,7 @@ const msalConfig = {
           console.log(`[MSAL] ${message}`);
         }
       },
-      logLevel: "Info",
+      logLevel: "Error",
       piiLoggingEnabled: false
     }
   }

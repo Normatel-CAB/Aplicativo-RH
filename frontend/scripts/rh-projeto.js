@@ -1,5 +1,3 @@
-//const BACKEND_URL = '';
-
 const projetoTitulo = document.getElementById('projetoTitulo');
 const projetoDescricao = document.getElementById('projetoDescricao');
 const detalhesStatus = document.getElementById('detalhesStatus');
@@ -45,6 +43,7 @@ const BASES_PROJETO = {
   '737': 'Base Imboassica',
   '743': 'Bases: Cabiunas, Severina e Barra do Furado',
   '741': 'Bases: UTE, Áreas Externa e Tapera',
+  '742': 'Base: Cenpes',
   '744': 'Apoio Macaé',
   'Apoio Macae': 'Base de apoio'
 };
@@ -136,6 +135,31 @@ function listarBackendsCandidatos() {
   return [...new Set(urls.filter(Boolean))];
 }
 
+async function registrarLogAuditoria(acao, dados) {
+  try {
+    if (typeof window?.firebase?.firestore !== 'function') return;
+    await window.firebase.firestore().collection('logs_auditoria').add({
+      acao,
+      criado_em: new Date().toISOString(),
+      usuario_email: String(localStorage.getItem('rh_user_email') || '').toLowerCase().trim(),
+      usuario_nome: String(localStorage.getItem('rh_user_nome') || '').trim(),
+      ...dados
+    });
+  } catch {
+    // Logs nunca bloqueiam o fluxo principal
+  }
+}
+
+function criarEntradaHistorico(acao, extras) {
+  return {
+    acao,
+    por_nome: String(localStorage.getItem('rh_user_nome') || '').trim(),
+    por_email: String(localStorage.getItem('rh_user_email') || '').toLowerCase().trim(),
+    em: new Date().toISOString(),
+    ...(extras || {})
+  };
+}
+
 function forcarLogoutPorRevogacaoAcesso() {
   localStorage.removeItem('rh_auth_token');
   localStorage.removeItem('rh_user_id');
@@ -190,7 +214,7 @@ async function carregarEnviosComFallback() {
 
     for (const backendBase of backends) {
       try {
-        const dados = await requisicaoBackendJson(`${backendBase}/api/envios?limit=1000`);
+        const dados = await requisicaoBackendJson(`${backendBase}/api/envios?limit=10000`);
         return Array.isArray(dados) ? dados : [];
       } catch {
         // tenta próximo backend candidato
@@ -549,6 +573,68 @@ function criarDetalheItem(label, valor) {
   return `<div class="detalhe-item"><span>${label}</span><strong>${valor || '-'}</strong></div>`;
 }
 
+const HISTORICO_ROTULOS = {
+  excluir: 'Excluído',
+  restaurar: 'Restaurado',
+  marcar_feito: 'Marcado como feito',
+  marcar_pendente: 'Marcado como pendente'
+};
+
+const HISTORICO_CLASSES = {
+  excluir: 'historico-item--excluir',
+  restaurar: 'historico-item--restaurar',
+  marcar_feito: 'historico-item--feito',
+  marcar_pendente: 'historico-item--pendente'
+};
+
+function renderizarHistorico(historico) {
+  if (!Array.isArray(historico) || historico.length === 0) return '';
+
+  const ordenado = historico
+    .slice()
+    .sort((a, b) => (a.em || '').localeCompare(b.em || ''));
+
+  const itens = ordenado.map((entrada) => {
+    const acao = HISTORICO_ROTULOS[entrada.acao] || entrada.acao || 'Ação';
+    const classeItem = HISTORICO_CLASSES[entrada.acao] || '';
+    const dt = entrada.em ? new Date(entrada.em) : null;
+    const dataStr = dt ? dt.toLocaleDateString('pt-BR') : '—';
+    const horaStr = dt ? dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—';
+    const nome = entrada.por_nome || entrada.por_email || '—';
+    const motivoHtml = entrada.motivo
+      ? `<span class="historico-motivo">${entrada.motivo}</span>`
+      : '';
+    return `<li class="historico-item ${classeItem}">
+      <span class="historico-acao-tag">${acao}</span>
+      <div class="historico-detalhe">
+        <span class="historico-datetime">
+          <span class="historico-data">${dataStr}</span>
+          <span class="historico-hora">${horaStr}</span>
+        </span>
+        <span class="historico-usuario">${nome}</span>
+        ${motivoHtml}
+      </div>
+    </li>`;
+  }).join('');
+
+  const totalExtras = ordenado.length - 1;
+  const toggleHtml = totalExtras > 0
+    ? `<button class="historico-toggle-btn" type="button" data-historico-toggle aria-expanded="false">
+        <span class="historico-toggle-label">Mostrar tudo</span>
+        <span class="historico-toggle-count">+${totalExtras}</span>
+        <svg class="historico-toggle-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>`
+    : '';
+
+  return `<div class="detalhe-historico" data-historico-expanded="false">
+    <div class="historico-header">
+      <span class="detalhe-historico-titulo">Histórico</span>
+      ${toggleHtml}
+    </div>
+    <ul class="historico-lista">${itens}</ul>
+  </div>`;
+}
+
 function obterStatusAtendimento(record) {
   return String(record?.atendimento_status || '').trim().toLowerCase() === 'feito' ? 'feito' : 'pendente';
 }
@@ -684,25 +770,44 @@ function criarCardRegistro(record) {
       ${criarDetalheItem('Data fim', formatarData(record.data_fim))}
       ${criarDetalheItem('Dias', record.dias)}
       ${criarDetalheItem('Enviado em', formatarDataHora(record.criado_em))}
-      ${isExcluido ? criarDetalheItem('Excluído em', formatarDataHora(record.excluido_em)) : ''}
     </div>
     <div class="detalhe-arquivos">
       <span>Arquivo(s)</span>
       <div>${arquivosHtml}</div>
     </div>
+    ${renderizarHistorico(record.historico)}
   `;
+
+  const toggleBtn = card.querySelector('[data-historico-toggle]');
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', () => {
+      const historicoEl = card.querySelector('.detalhe-historico');
+      const expandido = historicoEl.dataset.historicoExpanded === 'true';
+      historicoEl.dataset.historicoExpanded = expandido ? 'false' : 'true';
+      toggleBtn.setAttribute('aria-expanded', String(!expandido));
+      const label = toggleBtn.querySelector('.historico-toggle-label');
+      if (label) label.textContent = expandido ? 'Mostrar tudo' : 'Recolher';
+    });
+  }
 
   return card;
 }
 
-function atualizarStatusLocalRegistro(registroId, atendimentoStatus) {
+function atualizarStatusLocalRegistro(registroId, atendimentoStatus, registrarHistorico = false) {
   const normalizado = String(atendimentoStatus || '').trim().toLowerCase() === 'feito' ? 'feito' : 'pendente';
+  const entrada = registrarHistorico
+    ? criarEntradaHistorico(normalizado === 'feito' ? 'marcar_feito' : 'marcar_pendente')
+    : null;
 
   const atualizarLista = (lista) => {
     const idx = lista.findIndex((item) => String(item?.id || '') === String(registroId || ''));
     if (idx >= 0) {
       lista[idx].atendimento_status = normalizado;
       lista[idx].atendimento_atualizado_em = new Date().toISOString();
+      if (entrada) {
+        if (!Array.isArray(lista[idx].historico)) lista[idx].historico = [];
+        lista[idx].historico.push(entrada);
+      }
     }
   };
 
@@ -726,13 +831,16 @@ function removerRegistroLocal(registroId) {
   registrosProjetoFiltrados = registrosProjetoFiltrados.filter((item) => String(item?.id || '') !== id);
 }
 
-function marcarRegistroComoExcluidoLocal(registroId) {
+function marcarRegistroComoExcluidoLocal(registroId, motivo) {
   const id = String(registroId || '');
+  const entrada = criarEntradaHistorico('excluir', { motivo: String(motivo || '').trim() });
   const atualizar = (lista) => {
     const idx = lista.findIndex((item) => String(item?.id || '') === id);
     if (idx >= 0) {
       lista[idx].excluido = true;
-      lista[idx].excluido_em = new Date().toISOString();
+      lista[idx].excluido_em = entrada.em;
+      if (!Array.isArray(lista[idx].historico)) lista[idx].historico = [];
+      lista[idx].historico.push(entrada);
     }
   };
   atualizar(todosRegistros);
@@ -742,11 +850,14 @@ function marcarRegistroComoExcluidoLocal(registroId) {
 
 function marcarRegistroComoRestauradoLocal(registroId) {
   const id = String(registroId || '');
+  const entrada = criarEntradaHistorico('restaurar');
   const atualizar = (lista) => {
     const idx = lista.findIndex((item) => String(item?.id || '') === id);
     if (idx >= 0) {
       lista[idx].excluido = false;
       lista[idx].excluido_em = null;
+      if (!Array.isArray(lista[idx].historico)) lista[idx].historico = [];
+      lista[idx].historico.push(entrada);
     }
   };
   atualizar(todosRegistros);
@@ -779,10 +890,15 @@ async function excluirRegistroNoBackend(registroId) {
   throw new Error('BACKEND_DELETE_FAILED');
 }
 
-async function excluirRegistroNoFirestore(registroId) {
+async function excluirRegistroNoFirestore(registroId, motivo) {
+  const motivoStr = String(motivo || '').trim();
+  const entrada = criarEntradaHistorico('excluir', { motivo: motivoStr });
   await window.firebase.firestore().collection('envios_atestados').doc(String(registroId)).set({
     excluido: true,
-    excluido_em: new Date().toISOString()
+    excluido_em: entrada.em,
+    motivo_exclusao: motivoStr,
+    excluido_por: entrada.por_nome || entrada.por_email,
+    historico: window.firebase.firestore.FieldValue.arrayUnion(entrada)
   }, { merge: true });
 }
 
@@ -811,9 +927,11 @@ async function restaurarRegistroNoBackend(registroId) {
 }
 
 async function restaurarRegistroNoFirestore(registroId) {
+  const entrada = criarEntradaHistorico('restaurar');
   await window.firebase.firestore().collection('envios_atestados').doc(String(registroId)).update({
     excluido: false,
-    excluido_em: null
+    excluido_em: null,
+    historico: window.firebase.firestore.FieldValue.arrayUnion(entrada)
   });
 }
 
@@ -850,15 +968,23 @@ function abrirModalConfirmacaoExclusao() {
     const modal = document.getElementById('modalExclusao');
     const btnConfirmar = document.getElementById('modalExclusaoConfirmar');
     const btnCancelar = document.getElementById('modalExclusaoCancelar');
+    const motivoInput = document.getElementById('modalExclusaoMotivo');
+    const motivoErro = document.getElementById('modalExclusaoMotivoErro');
 
     if (!modal || !btnConfirmar || !btnCancelar) {
-      resolve(window.confirm('Confirma a exclusão deste atestado? Esta ação não pode ser desfeita.'));
+      const motivo = window.prompt('Motivo da exclusão (obrigatório):');
+      if (motivo === null) { resolve({ confirmado: false, motivo: '' }); return; }
+      if (!motivo.trim()) { resolve({ confirmado: false, motivo: '' }); return; }
+      resolve({ confirmado: true, motivo: motivo.trim() });
       return;
     }
 
+    if (motivoInput) motivoInput.value = '';
+    if (motivoErro) { motivoErro.textContent = ''; motivoErro.classList.add('hidden'); }
+
     document.body.classList.add('dialog-open');
     modal.hidden = false;
-    btnConfirmar.focus();
+    if (motivoInput) setTimeout(() => motivoInput.focus(), 50);
 
     function fechar(resultado) {
       modal.hidden = true;
@@ -870,10 +996,21 @@ function abrirModalConfirmacaoExclusao() {
       resolve(resultado);
     }
 
-    function onConfirmar() { fechar(true); }
-    function onCancelar() { fechar(false); }
-    function onOverlayClick(e) { if (e.target === modal) fechar(false); }
-    function onEsc(e) { if (e.key === 'Escape') fechar(false); }
+    function onConfirmar() {
+      const motivo = String(motivoInput ? motivoInput.value : '').trim();
+      if (!motivo) {
+        if (motivoErro) {
+          motivoErro.textContent = 'Informe o motivo da exclusão antes de confirmar.';
+          motivoErro.classList.remove('hidden');
+          motivoInput?.focus();
+        }
+        return;
+      }
+      fechar({ confirmado: true, motivo });
+    }
+    function onCancelar() { fechar({ confirmado: false, motivo: '' }); }
+    function onOverlayClick(e) { if (e.target === modal) fechar({ confirmado: false, motivo: '' }); }
+    function onEsc(e) { if (e.key === 'Escape') fechar({ confirmado: false, motivo: '' }); }
 
     btnConfirmar.addEventListener('click', onConfirmar);
     btnCancelar.addEventListener('click', onCancelar);
@@ -892,15 +1029,18 @@ async function excluirAtestado(registroId) {
     return;
   }
 
-  const confirmar = await abrirModalConfirmacaoExclusao();
-  if (!confirmar) {
+  const resultado = await abrirModalConfirmacaoExclusao();
+  if (!resultado.confirmado) {
     return;
   }
+
+  const motivo = resultado.motivo;
+  const registroAlvo = obterRegistroPorId(registroId);
 
   excluindoAtestado = true;
 
   // Atualização otimista: UI responde imediatamente.
-  marcarRegistroComoExcluidoLocal(registroId);
+  marcarRegistroComoExcluidoLocal(registroId, motivo);
   atualizarBotoesFiltroAtendimento();
   aplicarFiltros();
   setDetalhesStatus('Atestado movido para Excluídos. Acesse a aba para restaurar.', 'success');
@@ -909,8 +1049,14 @@ async function excluirAtestado(registroId) {
     try {
       await excluirRegistroNoBackend(registroId);
     } catch {
-      await excluirRegistroNoFirestore(registroId);
+      await excluirRegistroNoFirestore(registroId, motivo);
     }
+    await registrarLogAuditoria('excluir_atestado', {
+      atestado_id: registroId,
+      colaborador_nome: registroAlvo?.nome || '',
+      projeto: registroAlvo?.projeto || '',
+      motivo
+    });
   } catch (error) {
     // Rollback em caso de falha na persistência.
     marcarRegistroComoRestauradoLocal(registroId);
@@ -949,9 +1095,11 @@ async function atualizarStatusAtendimentoNoBackend(registroId, atendimentoStatus
 }
 
 async function atualizarStatusAtendimentoNoFirestore(registroId, atendimentoStatus) {
+  const entrada = criarEntradaHistorico(atendimentoStatus === 'feito' ? 'marcar_feito' : 'marcar_pendente');
   await window.firebase.firestore().collection('envios_atestados').doc(String(registroId)).set({
     atendimento_status: atendimentoStatus,
-    atendimento_atualizado_em: new Date().toISOString()
+    atendimento_atualizado_em: entrada.em,
+    historico: window.firebase.firestore.FieldValue.arrayUnion(entrada)
   }, { merge: true });
 }
 
@@ -973,7 +1121,7 @@ async function marcarRegistroComoFeito(registroId, atendimentoStatus) {
 
   // Atualização otimista: a UI responde imediatamente e sincroniza em segundo plano.
   if (statusAnterior !== statusDestino) {
-    atualizarStatusLocalRegistro(id, statusDestino);
+    atualizarStatusLocalRegistro(id, statusDestino, true);
     aplicarFiltros();
   }
 
@@ -985,6 +1133,11 @@ async function marcarRegistroComoFeito(registroId, atendimentoStatus) {
     }
 
     setDetalhesStatus(statusDestino === 'feito' ? 'Atestado marcado como feito.' : 'Atestado marcado como pendente.', 'success');
+    await registrarLogAuditoria(statusDestino === 'feito' ? 'marcar_feito' : 'marcar_pendente', {
+      atestado_id: id,
+      colaborador_nome: registroAlvo?.nome || '',
+      projeto: registroAlvo?.projeto || ''
+    });
   } catch (error) {
     // Rollback do estado em caso de falha na persistência.
     if (statusAnterior !== statusDestino) {

@@ -121,6 +121,13 @@ function criarCardPendente(usuario) {
       <div class="usuario-data">Cadastrado em: ${dataCadastro}</div>
     </div>
     <div class="usuario-acoes">
+      <label class="usuario-cargo-label">
+        Cargo
+        <select class="usuario-cargo-select">
+          <option value="colaborador" selected>Colaborador RH</option>
+          <option value="admin">Administrador</option>
+        </select>
+      </label>
       <button type="button" class="btn-aprovar" data-user-id="${usuario.id}">Aprovar</button>
     </div>
   `;
@@ -172,10 +179,17 @@ async function aprovarUsuario(userId, botao) {
   botao.disabled = true;
   botao.textContent = 'Aprovando...';
   try {
-    // Atualiza o status do usuário para 'aprovado' no Firestore
-    await obterFirestore().collection('usuarios_rh').doc(String(userId)).update({ status: 'aprovado' });
-    registrarEventoBackend('usuario_aprovado', { usuarioIdAprovado: userId });
     const card = botao.closest('.usuario-item');
+    const select = card && card.querySelector('.usuario-cargo-select');
+    const role = select ? String(select.value || 'colaborador') : 'colaborador';
+
+    await obterFirestore().collection('usuarios_rh').doc(String(userId)).update({
+      status: 'aprovado',
+      aprovado: true,
+      role,
+      atualizado_em: new Date().toISOString(),
+    });
+    registrarEventoBackend('usuario_aprovado', { usuarioIdAprovado: userId, role });
     if (card) {
       card.remove();
     }
@@ -227,12 +241,128 @@ if (sairRhBtn) {
     localStorage.removeItem('rh_user_email');
     localStorage.removeItem('rh_user_nome');
     localStorage.removeItem('rh_user_pendente');
+    localStorage.removeItem('rh_user_role');
     registrarEventoBackend('logout', { email: emailAtual });
-    window.location.href = 'index.html';
+    window.location.href = 'rh-login.html';
   });
 }
 
 
+// ── Gerenciamento de cargos ──────────────────────────────────────────────────
+
+const usuariosAprovados = document.getElementById('usuariosAprovados');
+const cargosStatus = document.getElementById('cargosStatus');
+
+const LABELS_CARGO = { admin: 'Administrador', colaborador: 'Colaborador RH' };
+
+function setCargosStatus(texto, tipo = 'info') {
+  if (!cargosStatus) return;
+  cargosStatus.textContent = texto;
+  cargosStatus.className = `status-message status-message--${tipo} status-toast${texto ? '' : ' hidden'}`;
+}
+
+function criarCardAprovado(usuario) {
+  const card = document.createElement('article');
+  card.className = 'usuario-item';
+
+  const nome = escaparHtml(usuario.nome || 'Sem nome');
+  const email = escaparHtml(usuario.email || '-');
+  const roleAtual = String(usuario.role || 'colaborador');
+  const labelAtual = LABELS_CARGO[roleAtual] || roleAtual;
+
+  card.innerHTML = `
+    <div class="usuario-info">
+      <div class="usuario-nome">${nome}</div>
+      <div class="usuario-email">${email}</div>
+      <div class="usuario-data">
+        Cargo atual: <span class="role-badge role-badge--inline" data-role="${roleAtual}">${labelAtual}</span>
+      </div>
+    </div>
+    <div class="usuario-acoes">
+      <label class="usuario-cargo-label">
+        Novo cargo
+        <select class="usuario-cargo-select" data-user-id="${usuario.id}" data-role-atual="${roleAtual}">
+          <option value="colaborador"${roleAtual === 'colaborador' ? ' selected' : ''}>Colaborador RH</option>
+          <option value="admin"${roleAtual === 'admin' ? ' selected' : ''}>Administrador</option>
+        </select>
+      </label>
+      <button type="button" class="btn-salvar-cargo" data-user-id="${usuario.id}">Salvar cargo</button>
+    </div>
+  `;
+
+  return card;
+}
+
+async function carregarAprovados() {
+  if (!usuariosAprovados) return;
+  try {
+    const snapshot = await obterFirestore()
+      .collection('usuarios_rh')
+      .where('status', '==', 'aprovado')
+      .get();
+
+    const aprovados = snapshot.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
+
+    if (!aprovados.length) {
+      usuariosAprovados.innerHTML = '<div class="status-vazio">Nenhum usuário aprovado encontrado.</div>';
+      return;
+    }
+
+    usuariosAprovados.innerHTML = '';
+    aprovados
+      .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''))
+      .forEach((u) => usuariosAprovados.appendChild(criarCardAprovado(u)));
+  } catch (err) {
+    usuariosAprovados.innerHTML = '<div class="status-vazio">Erro ao carregar usuários.</div>';
+  }
+}
+
+async function salvarCargo(userId, novoRole, botao) {
+  const select = botao.closest('.usuario-item')?.querySelector('.usuario-cargo-select');
+  const roleAtual = select?.getAttribute('data-role-atual') || '';
+
+  if (novoRole === roleAtual) {
+    setCargosStatus('O cargo escolhido é o mesmo atual.', 'info');
+    return;
+  }
+
+  botao.disabled = true;
+  botao.textContent = 'Salvando...';
+
+  try {
+    await obterFirestore().collection('usuarios_rh').doc(String(userId)).update({
+      role: novoRole,
+      atualizado_em: new Date().toISOString(),
+    });
+
+    const badge = botao.closest('.usuario-item')?.querySelector('[data-role]');
+    if (badge) {
+      badge.textContent = LABELS_CARGO[novoRole] || novoRole;
+      badge.setAttribute('data-role', novoRole);
+    }
+    if (select) select.setAttribute('data-role-atual', novoRole);
+
+    setCargosStatus(`Cargo de ${botao.closest('.usuario-item')?.querySelector('.usuario-nome')?.textContent || 'usuário'} atualizado para ${LABELS_CARGO[novoRole] || novoRole}.`, 'success');
+  } catch (err) {
+    setCargosStatus(`Erro ao salvar: ${err?.message || 'Falha ao atualizar cargo.'}`, 'error');
+  } finally {
+    botao.disabled = false;
+    botao.textContent = 'Salvar cargo';
+  }
+}
+
+if (usuariosAprovados) {
+  usuariosAprovados.addEventListener('click', (event) => {
+    const botao = event.target.closest('.btn-salvar-cargo');
+    if (!botao) return;
+    const userId = botao.dataset.userId;
+    const select = botao.closest('.usuario-item')?.querySelector('.usuario-cargo-select');
+    const novoRole = select ? select.value : 'colaborador';
+    if (userId) salvarCargo(userId, novoRole, botao);
+  });
+}
+
 // Inicialização direta
 registrarEventoBackend('acesso_pagina');
 carregarPendentes();
+carregarAprovados();

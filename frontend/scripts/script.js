@@ -248,12 +248,15 @@ function inicializarGateProjeto() {
       return;
     }
 
-    if (Array.from(projetoSelect.options).some((opt) => opt.value === projetoInicial)) {
-      liberarFormularioComProjeto(projetoInicial);
-      return;
+    // Se a opção não existe (projeto criado dinamicamente pelo RH), adiciona ela ao select
+    if (!Array.from(projetoSelect.options).some((opt) => opt.value === projetoInicial)) {
+      const opt = document.createElement('option');
+      opt.value = projetoInicial;
+      opt.textContent = projetoInicial;
+      projetoSelect.appendChild(opt);
     }
 
-    window.location.href = 'index.html';
+    liberarFormularioComProjeto(projetoInicial);
     return;
   }
 
@@ -1042,7 +1045,6 @@ form.addEventListener('submit', async (event) => {
       const emailUrl = isLocal
         ? 'https://normatel-rh.web.app/api/email'
         : `${window.location.origin}/api/email`;
-      console.log('[Email] Chamando API:', emailUrl);
       const respostaEmail = await fetch(emailUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1050,7 +1052,6 @@ form.addEventListener('submit', async (event) => {
       });
       if (respostaEmail.ok) {
         const dados = await respostaEmail.json().catch(() => ({}));
-        console.log('[Email] Enviado com sucesso. ID:', dados.id, '| Para:', dados.para);
       } else {
         const erro = await respostaEmail.json().catch(() => ({}));
         console.error('[Email] Falha na API. Status:', respostaEmail.status, '| Erro:', erro.error || JSON.stringify(erro));
@@ -1095,3 +1096,4 @@ registrarEventoBackend('acesso_pagina');
 ocultarProgressoUpload();
 inicializarGateProjeto();
 atualizarLinkVoltarFormulario();
+

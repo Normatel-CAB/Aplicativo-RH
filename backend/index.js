@@ -48,7 +48,8 @@ const __dirname = path.dirname(__filename);
 const FIRESTORE_COLLECTIONS = {
   envios: 'envios_atestados',
   usuarios: 'usuarios_rh',
-  eventos: 'eventos_frontend'
+  eventos: 'eventos_frontend',
+  projetos: 'projetos'
 };
 
 // CONFIGURAÇÃO DE SEGURANÇA
@@ -260,6 +261,42 @@ async function restaurarEnvioFirestore(id) {
   return true;
 }
 
+async function listarProjetosDoFirestore() {
+  const db = await obterFirestoreObrigatorio();
+  const snapshot = await db.collection(FIRESTORE_COLLECTIONS.projetos)
+    .orderBy('criado_em', 'desc')
+    .get();
+  return snapshot.docs
+    .map(doc => ({ id: doc.id, ...doc.data() }))
+    .filter(p => !p.excluido);
+}
+
+async function criarProjetoNoFirestore(projeto) {
+  const db = await obterFirestoreObrigatorio();
+  await db.collection(FIRESTORE_COLLECTIONS.projetos).doc(String(projeto.id)).set({
+    ...projeto,
+    origem_persistencia: 'backend-node'
+  });
+}
+
+async function editarProjetoNoFirestore(id, dados) {
+  const db = await obterFirestoreObrigatorio();
+  const ref = db.collection(FIRESTORE_COLLECTIONS.projetos).doc(String(id));
+  const doc = await ref.get();
+  if (!doc.exists) return false;
+  await ref.set({ ...dados, atualizado_em: new Date().toISOString() }, { merge: true });
+  return true;
+}
+
+async function excluirProjetoNoFirestore(id) {
+  const db = await obterFirestoreObrigatorio();
+  const ref = db.collection(FIRESTORE_COLLECTIONS.projetos).doc(String(id));
+  const doc = await ref.get();
+  if (!doc.exists) return false;
+  await ref.set({ excluido: true, excluido_em: new Date().toISOString() }, { merge: true });
+  return true;
+}
+
 async function obterFirestoreObrigatorio() {
   const db = await inicializarFirestore();
   if (!db) {
@@ -339,16 +376,25 @@ async function gerarComprovantePDF(envio) {
   });
 }
 
+// Singleton do transporter — não recriar a cada envio
+let _emailTransporter = null;
+function obterEmailTransporter() {
+  if (!_emailTransporter) {
+    _emailTransporter = nodemailer.createTransporter({
+      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+      port: parseInt(process.env.EMAIL_PORT) || 587,
+      secure: false,
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      }
+    });
+  }
+  return _emailTransporter;
+}
+
 async function enviarEmailComprovante(envio, comprovanteUrl) {
-  const transporter = nodemailer.createTransporter({
-    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.EMAIL_PORT) || 587,
-    secure: false,
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    }
-  });
+  const transporter = obterEmailTransporter();
 
   const mailOptions = {
     from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
@@ -380,15 +426,7 @@ async function enviarEmailComprovante(envio, comprovanteUrl) {
 }
 
 async function enviarEmailConfirmacao(envio) {
-  const transporter = nodemailer.createTransporter({
-    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.EMAIL_PORT) || 587,
-    secure: false,
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    }
-  });
+  const transporter = obterEmailTransporter();
 
   const dataInicioBR = String(envio.data_inicio || '').split('-').reverse().join('/');
   const dataFimBR = String(envio.data_fim || '').split('-').reverse().join('/');
@@ -696,29 +734,37 @@ async function salvarArquivosDoEnvioNoStorage(envioId, arquivosEntrada) {
   return urls;
 }
 
-// Rate Limiting
+// Rate Limiting — sliding window com limpeza periódica para evitar memory leak
 function verificarRateLimit(chave, limitePorMinuto = MAX_REQUESTS_PER_MINUTE) {
   const agora = Date.now();
   const minutoAtras = agora - 60000;
-  
+
   if (!REQUEST_TRACKER.has(chave)) {
     REQUEST_TRACKER.set(chave, { count: 1, timestamp: agora });
     return true;
   }
-  
+
   const registro = REQUEST_TRACKER.get(chave);
   if (registro.timestamp < minutoAtras) {
     REQUEST_TRACKER.set(chave, { count: 1, timestamp: agora });
     return true;
   }
-  
+
   if (registro.count >= limitePorMinuto) {
     return false;
   }
-  
+
   registro.count++;
   return true;
 }
+
+// Limpa entradas antigas a cada 5 minutos para evitar memory leak
+setInterval(() => {
+  const limite = Date.now() - 120000;
+  for (const [chave, registro] of REQUEST_TRACKER) {
+    if (registro.timestamp < limite) REQUEST_TRACKER.delete(chave);
+  }
+}, 300000);
 
 // Validação de entrada
 function validarAtestado(dados) {
@@ -746,8 +792,8 @@ function validarAtestado(dados) {
   
   if (!dados.projeto || typeof dados.projeto !== 'string' || dados.projeto.trim().length === 0) {
     erros.push('Projeto é obrigatório');
-  } else if (dados.projeto.length > 100) {
-    erros.push('Projeto muito longo (máx 100 caracteres)');
+  } else if (dados.projeto.length > 200) {
+    erros.push('Projeto muito longo (máx 200 caracteres)');
   }
   
   if (!dados.tipo_atestado || typeof dados.tipo_atestado !== 'string') {
@@ -1022,8 +1068,8 @@ const server = http.createServer(async (req, res) => {
             }
           }
         });
-        await file.makePublic();
-        comprovanteUrl = `https://storage.googleapis.com/${firebaseStorageBucket}/${fileName}`;
+        const [urlAssinada] = await file.getSignedUrl({ action: 'read', expires: '03-01-2500' });
+        comprovanteUrl = urlAssinada;
 
         // Atualizar Firestore com URL do comprovante
         await salvarEnvioNoFirestore({
@@ -1061,7 +1107,7 @@ const server = http.createServer(async (req, res) => {
 
     // Listar atestados
     if (pathname === '/api/envios' && req.method === 'GET') {
-      const limit = Math.min(parseInt(parsedUrl.query.limit) || 100, 1000);
+      const limit = Math.min(parseInt(parsedUrl.query.limit) || 500, 10000);
 
       try {
         const data = await listarEnviosDoFirestore(limit);
@@ -1077,7 +1123,7 @@ const server = http.createServer(async (req, res) => {
 
     // Atualizar status de atendimento de um envio (feito/pendente)
     if (pathname.match(/^\/api\/envios\/status\//) && req.method === 'POST') {
-      const id = pathname.split('/').pop();
+      const id = decodeURIComponent(pathname.split('/').pop());
 
       if (!id || id.length > 100) {
         res.writeHead(400);
@@ -1123,7 +1169,7 @@ const server = http.createServer(async (req, res) => {
 
     // Excluir envio
     if (pathname.match(/^\/api\/envios\/excluir\//) && req.method === 'POST') {
-      const id = pathname.split('/').pop();
+      const id = decodeURIComponent(pathname.split('/').pop());
 
       if (!id || id.length > 100) {
         res.writeHead(400);
@@ -1153,7 +1199,7 @@ const server = http.createServer(async (req, res) => {
 
     // Restaurar envio excluído
     if (pathname.match(/^\/api\/envios\/restaurar\//) && req.method === 'POST') {
-      const id = pathname.split('/').pop();
+      const id = decodeURIComponent(pathname.split('/').pop());
 
       if (!id || id.length > 100) {
         res.writeHead(400);
@@ -1358,7 +1404,7 @@ const server = http.createServer(async (req, res) => {
 
         // Criar novo usuário (pendente de aprovação)
         const novoUsuario = {
-          id: Date.now().toString(),
+          id: uuidv4(),
           email: body.email.trim().toLowerCase(),
           nome: body.nome.trim(),
           departamento: body.departamento || '',
@@ -1386,10 +1432,19 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    // Aprovar usuário (NOTA: Implementar autenticação aqui em produção)
+    // Aprovar usuário — protegido por admin token
     if (pathname.match(/^\/api\/usuarios\/aprovar\//) && req.method === 'POST') {
-      const id = pathname.split('/').pop();
-      
+      const adminToken = String(process.env.ADMIN_TOKEN || '').trim();
+      const tokenHeader = String(req.headers['x-admin-token'] || '').trim();
+      const authHeader  = String(req.headers['authorization'] || '').trim();
+      if (adminToken && tokenHeader !== adminToken && authHeader !== `Bearer ${adminToken}`) {
+        res.writeHead(401);
+        res.end(JSON.stringify({ error: 'Não autorizado' }));
+        return;
+      }
+
+      const id = decodeURIComponent(pathname.split('/').pop());
+
       if (!id || id.length > 50) {
         res.writeHead(400);
         res.end(JSON.stringify({ error: 'ID inválido' }));
@@ -1416,9 +1471,18 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // Rejeitar usuário
+    // Rejeitar usuário — protegido por admin token
     if (pathname.match(/^\/api\/usuarios\/rejeitar\//) && req.method === 'POST') {
-      const id = pathname.split('/').pop();
+      const adminToken = String(process.env.ADMIN_TOKEN || '').trim();
+      const tokenHeader = String(req.headers['x-admin-token'] || '').trim();
+      const authHeader  = String(req.headers['authorization'] || '').trim();
+      if (adminToken && tokenHeader !== adminToken && authHeader !== `Bearer ${adminToken}`) {
+        res.writeHead(401);
+        res.end(JSON.stringify({ error: 'Não autorizado' }));
+        return;
+      }
+
+      const id = decodeURIComponent(pathname.split('/').pop());
       
       if (!id || id.length > 50) {
         res.writeHead(400);
@@ -1485,6 +1549,142 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Listar projetos (público — colaboradores precisam ver sem autenticação Firebase)
+    if (pathname === '/api/projetos' && req.method === 'GET') {
+      try {
+        const projetos = await listarProjetosDoFirestore();
+        res.writeHead(200);
+        res.end(JSON.stringify(projetos));
+        return;
+      } catch (err) {
+        res.writeHead(503);
+        res.end(JSON.stringify({ error: `Falha ao listar projetos (${err.message})` }));
+        return;
+      }
+    }
+
+    // Criar projeto (requer token de admin)
+    if (pathname === '/api/projetos' && req.method === 'POST') {
+      const adminToken = String(process.env.ADMIN_TOKEN || '').trim();
+      const tokenHeader = String(req.headers['x-admin-token'] || '').trim();
+      const authHeader = String(req.headers['authorization'] || '').trim();
+      const tokenValido = !adminToken || tokenHeader === adminToken || authHeader === `Bearer ${adminToken}`;
+
+      if (!tokenValido) {
+        res.writeHead(401);
+        res.end(JSON.stringify({ error: 'Não autorizado' }));
+        return;
+      }
+
+      let body;
+      try {
+        body = await parseBody(req);
+      } catch (err) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: err.message }));
+        return;
+      }
+
+      const nome = normalizarTextoCurto(body.nome, 200);
+      if (!nome) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'Nome do projeto é obrigatório' }));
+        return;
+      }
+
+      const novoProjeto = {
+        id: uuidv4(),
+        codigo: normalizarTextoCurto(body.codigo, 50),
+        nome,
+        descricao: normalizarTextoCurto(body.descricao, 500),
+        status: ['ativo', 'inativo', 'concluido'].includes(body.status) ? body.status : 'ativo',
+        responsavel: normalizarTextoCurto(body.responsavel, 150),
+        data_inicio: normalizarTextoCurto(body.data_inicio, 20),
+        data_fim: normalizarTextoCurto(body.data_fim, 20),
+        base: normalizarTextoCurto(body.base, 200),
+        colaboradores: Array.isArray(body.colaboradores) ? body.colaboradores.slice(0, 200).map(String) : [],
+        setores: Array.isArray(body.setores) ? body.setores.slice(0, 50).map(String) : [],
+        observacoes: normalizarTextoCurto(body.observacoes, 1000),
+        criado_em: new Date().toISOString(),
+        criado_por: normalizarTextoCurto(body.criado_por, 150),
+        criado_por_ip: ip,
+        atualizado_em: new Date().toISOString(),
+        excluido: false
+      };
+
+      try {
+        await criarProjetoNoFirestore(novoProjeto);
+        res.writeHead(201);
+        res.end(JSON.stringify(novoProjeto));
+        return;
+      } catch (err) {
+        res.writeHead(503);
+        res.end(JSON.stringify({ error: `Falha ao criar projeto (${err.message})` }));
+        return;
+      }
+    }
+
+    // Editar projeto
+    if (pathname.match(/^\/api\/projetos\/editar\//) && req.method === 'POST') {
+      const id = decodeURIComponent(pathname.split('/').pop());
+      if (!id || id.length > 200) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'ID inválido' }));
+        return;
+      }
+
+      let body;
+      try {
+        body = await parseBody(req);
+      } catch (err) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: err.message }));
+        return;
+      }
+
+      try {
+        const atualizado = await editarProjetoNoFirestore(id, body);
+        if (!atualizado) {
+          res.writeHead(404);
+          res.end(JSON.stringify({ error: 'Projeto não encontrado' }));
+          return;
+        }
+        res.writeHead(200);
+        res.end(JSON.stringify({ id, atualizado: true }));
+        return;
+      } catch (err) {
+        res.writeHead(503);
+        res.end(JSON.stringify({ error: `Falha ao editar projeto (${err.message})` }));
+        return;
+      }
+    }
+
+    // Excluir projeto (soft delete)
+    if (pathname.match(/^\/api\/projetos\/excluir\//) && req.method === 'POST') {
+      const id = decodeURIComponent(pathname.split('/').pop());
+      if (!id || id.length > 200) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'ID inválido' }));
+        return;
+      }
+
+      try {
+        const excluido = await excluirProjetoNoFirestore(id);
+        if (!excluido) {
+          res.writeHead(404);
+          res.end(JSON.stringify({ error: 'Projeto não encontrado' }));
+          return;
+        }
+        res.writeHead(200);
+        res.end(JSON.stringify({ id, excluido: true }));
+        return;
+      } catch (err) {
+        res.writeHead(503);
+        res.end(JSON.stringify({ error: `Falha ao excluir projeto (${err.message})` }));
+        return;
+      }
+    }
+
     // Health check
     if (pathname === '/api/health' && req.method === 'GET') {
       res.writeHead(200);
@@ -1529,6 +1729,10 @@ server.listen(PORT, () => {
   console.log(`  - POST /api/usuarios (cadastro)`);
   console.log(`  - POST /api/usuarios/aprovar/:id`);
   console.log(`  - POST /api/usuarios/rejeitar/:id`);
+  console.log(`  - GET  /api/projetos`);
+  console.log(`  - POST /api/projetos`);
+  console.log(`  - POST /api/projetos/editar/:id`);
+  console.log(`  - POST /api/projetos/excluir/:id`);
   console.log(`\n⚠️ SEGURANÇA ATIVA:`);
   console.log(`  - CORS: Whitelist ${ALLOWED_ORIGINS.length} origens`);
   console.log(`  - CORS: Sufixos permitidos ${ALLOWED_ORIGIN_SUFFIXES.join(', ')}`);

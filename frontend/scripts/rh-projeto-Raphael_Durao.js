@@ -190,7 +190,7 @@ async function carregarEnviosComFallback() {
 
     for (const backendBase of backends) {
       try {
-        const dados = await requisicaoBackendJson(`${backendBase}/api/envios?limit=1000`);
+        const dados = await requisicaoBackendJson(`${backendBase}/api/envios?limit=10000`);
         return Array.isArray(dados) ? dados : [];
       } catch {
         // tenta próximo backend candidato

@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%235fbe4a'/%3E%3Cpath d='M14 34h36v8H14zM14 22h36v8H14z' fill='white'/%3E%3C/svg%3E" />
   <title>Envio realizado</title>
   <link rel="stylesheet" href="../styles/styles.css" />
 </head>
@@ -19,11 +23,11 @@
       <div class="success-icon" aria-hidden="true">✓</div>
       <h1>Enviado com sucesso</h1>
       <p class="page-subtitle">Seu formulário foi recebido pelo RH.</p>
-      <div id="confirmationDetails" class="confirmation-details" style="display: none;">
+      <div id="confirmationDetails" class="confirmation-details hidden">
         <p><strong>ID de Rastreamento:</strong> <span id="trackingId"></span></p>
         <p><strong>Data e Hora:</strong> <span id="submissionTime"></span></p>
         <p><strong>Email:</strong> <span id="userEmail"></span></p>
-        <p id="receiptLink" style="display: none;"><a id="receiptUrl" href="#" target="_blank">Baixar Comprovante PDF</a></p>
+        <p id="receiptLink" class="hidden"><a id="receiptUrl" href="#" target="_blank">Baixar Comprovante PDF</a></p>
       </div>
       <a href="index.html" class="success-link">Fazer novo envio</a>
     </section>
@@ -39,9 +43,9 @@
         document.getElementById('userEmail').textContent = parsed.email;
         if (parsed.comprovante_url) {
           document.getElementById('receiptUrl').href = parsed.comprovante_url;
-          document.getElementById('receiptLink').style.display = 'block';
+          document.getElementById('receiptLink').classList.remove('hidden');
         }
-        document.getElementById('confirmationDetails').style.display = 'block';
+        document.getElementById('confirmationDetails').classList.remove('hidden');
         sessionStorage.removeItem('envio_success_data');
       }
     });

@@ -8,7 +8,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%235fbe4a'/%3E%3Cpath d='M14 34h36v8H14zM14 22h36v8H14z' fill='white'/%3E%3C/svg%3E" />
-  <title>Painel RH - Atestados e Declarações</title>
+  <title>Painel RH - Projetos</title>
   <link rel="stylesheet" href="../styles/styles.css" />
   <script src="../scripts/rh-access-guard.js"></script>
 </head>
@@ -22,43 +22,42 @@
   <main class="container main-content">
     <section class="page-head">
       <h1>Painel RH</h1>
-      <p class="page-subtitle">Registros recebidos de atestados e declarações.</p>
+      <p class="page-subtitle">Gerencie projetos e acompanhe os atestados de cada equipe.</p>
     </section>
 
     <section class="card rh-list-card">
+
+      <!-- ── barra de ações ── -->
       <div class="rh-list-actions">
-        <p id="listaStatus" class="rh-list-status status-message status-message--info status-toast hidden"></p>
-        <p id="usuarioLogadoInfo" class="rh-list-status status-message status-message--info hidden"></p>
+        <div class="rh-projetos-header-left">
+          <p id="projetosStatusMsg" class="rh-list-status status-message status-message--info hidden"></p>
+          <div class="rh-user-info-row">
+            <p id="usuarioLogadoInfo" class="rh-list-status status-message status-message--info hidden"></p>
+            <span id="roleUsuarioBadge" class="role-badge" data-role="" aria-label="Seu cargo"></span>
+          </div>
+        </div>
         <div class="rh-list-btn-group rh-list-btn-group--fixed" aria-label="Ações do painel RH">
-          <button type="button" id="gerenciarUsuariosBtn" class="rh-admin-btn" onclick="irParaAdmin()">Aprovar usuários</button>
+          <button type="button" id="btnAdicionarProjeto" class="rh-add-projeto-btn" data-permissao="canCreateProject">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Adicionar Projeto
+          </button>
+          <button type="button" id="gerenciarUsuariosBtn" class="rh-admin-btn" data-permissao="canManageUsers" onclick="irParaAdmin()">Aprovar usuários</button>
           <button type="button" id="abrirDashboardDemandasBtn" class="rh-admin-btn" onclick="irParaDashboardDemandas()">Dashboard</button>
           <button type="button" id="sairRhBtn" class="rh-logout-btn" onclick="fazerLogout()">Sair</button>
         </div>
       </div>
 
-      <div class="projetos-cards" aria-label="Projetos RH">
-        <button type="button" class="projeto-card" data-projeto="736" onclick="abrirProjetoEmNovaAba('736')">
-          <strong>Projeto 736</strong>
-          <span>Base Imbetiba</span>
-        </button>
-        <button type="button" class="projeto-card" data-projeto="737" onclick="abrirProjetoEmNovaAba('737')">
-          <strong>Projeto 737</strong>
-          <span>Base Imboassica</span>
-        </button>
-        <button type="button" class="projeto-card" data-projeto="743" onclick="abrirProjetoEmNovaAba('743')">
-          <strong>Projeto 743</strong>
-          <span>Bases: Cabiunas, Severina e Barra do Furado</span>
-        </button>
-        <button type="button" class="projeto-card" data-projeto="741" onclick="abrirProjetoEmNovaAba('741')">
-          <strong>Projeto 741</strong>
-          <span>Bases: UTE, Áreas Externa e Tapera</span>
-        </button>
-        <button type="button" class="projeto-card" data-projeto="744" onclick="abrirProjetoEmNovaAba('744')">
-          <strong>Apoio Macaé</strong>
-          <span>Base de apoio</span>
-        </button>
+      <!-- ── cards de projetos (populados dinamicamente) ── -->
+      <div id="projetosCardsContainer" class="projetos-cards projetos-cards--rh" aria-label="Projetos RH">
+        <!-- skeletons exibidos enquanto carrega -->
+        <div class="projeto-card-skeleton" aria-hidden="true"></div>
+        <div class="projeto-card-skeleton" aria-hidden="true"></div>
+        <div class="projeto-card-skeleton" aria-hidden="true"></div>
       </div>
 
+      <!-- ── tabela de atestados (usada pelo filtro de projeto legado) ── -->
       <div id="tabelaWrapper" class="table-wrapper hidden">
         <table class="rh-table">
           <thead>
@@ -77,16 +76,84 @@
           <tbody id="atestadosBody"></tbody>
         </table>
       </div>
+
     </section>
   </main>
 
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
+  <!-- ═══════════════════════════════════════════════════════════════
+       MODAL — Criar / Editar Projeto
+  ══════════════════════════════════════════════════════════════════ -->
+  <div id="modalProjeto" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalProjetoTitulo">
+    <div class="modal-dialog">
+
+      <div class="modal-header">
+        <h2 id="modalProjetoTitulo" class="modal-titulo">Adicionar Projeto</h2>
+        <button type="button" class="modal-close-btn" aria-label="Fechar modal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <form id="formCriarProjeto" novalidate>
+
+          <div class="modal-form-grid">
+
+            <label class="modal-field modal-field--full">
+              Nome do Projeto <span class="campo-obrigatorio">*</span>
+              <input type="text" name="nome" placeholder="Ex.: Obra Central Norte" maxlength="200" required />
+            </label>
+
+            <label class="modal-field modal-field--full">
+              Descrição
+              <textarea name="descricao" rows="3" placeholder="Descreva brevemente o projeto…" maxlength="500"></textarea>
+            </label>
+
+          </div>
+
+          <p class="form-status-msg hidden"></p>
+
+        </form>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" data-acao="cancelar" class="btn-modal-cancelar">Cancelar</button>
+        <button type="submit" form="formCriarProjeto" data-acao="salvar" class="btn-modal-salvar">Criar Projeto</button>
+      </div>
+
+    </div>
+  </div>
+  <!-- fim modal -->
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       MODAL — Confirmar exclusão de projeto
+  ══════════════════════════════════════════════════════════════════ -->
+  <div id="modalConfirmarExclusaoProjeto" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalExclusaoProjetoTitulo">
+    <div class="modal-dialog modal-dialog--sm">
+      <div class="modal-header">
+        <h2 id="modalExclusaoProjetoTitulo" class="modal-titulo">Excluir projeto</h2>
+      </div>
+      <div class="modal-body">
+        <p id="modalExclusaoProjetoMsg" class="modal-confirm-msg">Tem certeza que deseja excluir este projeto?</p>
+        <p class="modal-confirm-sub">Os atestados existentes serão preservados.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="modalExclusaoProjetoCancelar" class="btn-modal-cancelar">Cancelar</button>
+        <button type="button" id="modalExclusaoProjetoConfirmar" class="btn-modal-excluir">Excluir</button>
+      </div>
+    </div>
+  </div>
+  <!-- fim modal exclusao projeto -->
+
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
   <script src="../scripts/firebase-config.js"></script>
-  <script src="../scripts/rh-atestados.js?v=20260309a"></script>
-  <script src="../scripts/rh-dashboard.js?v=20260317c"></script>
+  <script src="../scripts/permissions.js"></script>
+  <script src="../scripts/rh-atestados.js?v=20260522b"></script>
+  <script src="../scripts/rh-dashboard.js?v=20260522b"></script>
+  <script src="../scripts/rh-projetos.js?v=20260522b"></script>
 </body>
 </html>
-

@@ -341,7 +341,7 @@ async function carregarEnviosComFallback() {
       throw new Error('Sem permissao no Firestore para ler envios_atestados e backend nao configurado.');
     }
 
-    const dados = await requisicaoBackendJson(`${backendBase}/api/envios?limit=1000`);
+    const dados = await requisicaoBackendJson(`${backendBase}/api/envios?limit=10000`);
     return Array.isArray(dados) ? dados : [];
   }
 }
