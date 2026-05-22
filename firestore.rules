@@ -85,9 +85,8 @@ service cloud.firestore {
     }
 
     // Usuários RH:
-    // - Leitura autenticada: exige Firebase Auth ativo (estabelecido após login MSAL)
-    // - Exceção: verificar existência do email antes do login (endpoint /api/usuarios/existe)
-    //   é feito via Cloud Function, não diretamente pelo cliente
+    // - Leitura pública: painel RH usa MSAL (não Firebase Auth), então request.auth é null
+    //   para admins — exigir auth bloquearia o painel inteiro.
     // - Create: registro público com validação de campos obrigatórios
     // - Update: somente campos de moderação (status/aprovado), feito via Cloud Function
     // - Delete: bloqueado diretamente; feito apenas via Cloud Function (que usa Admin SDK)
