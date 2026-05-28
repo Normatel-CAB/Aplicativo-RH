@@ -43,7 +43,6 @@ const BASES_PROJETO = {
   '737': 'Base Imboassica',
   '743': 'Bases: Cabiunas, Severina e Barra do Furado',
   '741': 'Bases: UTE, Áreas Externa e Tapera',
-  '742': 'Base: Cenpes',
   '744': 'Apoio Macaé',
   'Apoio Macae': 'Base de apoio'
 };
@@ -453,6 +452,15 @@ function configurarLinkVoltar() {
   const origem = String(origemSessao || params.get('origem') || 'rh-atestados.html').trim();
   const origemSegura = /^[a-z0-9\-_.]+\.html$/i.test(origem) ? origem : 'rh-atestados.html';
   voltarPainelRhProjetoBtn.href = origemSegura;
+
+  const irRelatorioBtn = document.getElementById('irRelatorioBtn');
+  if (irRelatorioBtn) {
+    irRelatorioBtn.addEventListener('click', () => {
+      const codigo = codigoProjetoAtual || String(sessionStorage.getItem(RH_PROJETO_CODIGO_KEY) || '').trim();
+      const destino = codigo ? `rh-dashboard-relatorio.html?projeto=${encodeURIComponent(codigo)}` : 'rh-dashboard-relatorio.html';
+      window.location.href = destino;
+    });
+  }
 }
 
 function obterCodigoProjetoSelecionado() {

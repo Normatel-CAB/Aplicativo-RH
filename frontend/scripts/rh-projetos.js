@@ -10,7 +10,6 @@
     { id: 'padrao-737', codigo: '737', nome: 'Projeto 737', base: 'Base Imboassica',                             status: 'ativo', padrao: true },
     { id: 'padrao-743', codigo: '743', nome: 'Projeto 743', base: 'Bases: Cabiunas, Severina e Barra do Furado', status: 'ativo', padrao: true },
     { id: 'padrao-741', codigo: '741', nome: 'Projeto 741', base: 'Bases: UTE, Áreas Externa e Tapera',          status: 'ativo', padrao: true },
-    { id: 'padrao-742', codigo: '742', nome: 'Projeto 742', base: 'Base: Cenpes',                               status: 'ativo', padrao: true },
     { id: 'padrao-744', codigo: '744', nome: 'Apoio Macaé', titulo: 'Apoio Macaé', base: 'Base de apoio',      status: 'ativo', padrao: true },
   ];
 
