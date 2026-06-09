@@ -538,29 +538,94 @@ function renderVazio(msg) {
     `<tr><td colspan="8" class="td-vazio">${esc(msg)}</td></tr>`;
 }
 
-/* ─── Exportar CSV ───────────────────────────────────────── */
+/* ─── Exportar Excel (.xls via HTML) ────────────────────────
+   Técnica HTML-to-XLS: gera uma tabela HTML com namespace
+   do Office. O Excel reconhece nativamente e abre com colunas
+   corretas — sem CDN, sem separador, sem problema de encoding.
+   ─────────────────────────────────────────────────────────── */
 function exportarCSV() {
   if (!dadosFiltrados.length) { setStatus('Sem dados para exportar.', true); return; }
 
-  const cabecalho = ['Nome','Cargo','Projeto','Tipo','Data Início','Data Fim','Dias','Enviado em','Status'];
-  const linhas    = dadosFiltrados.map(d => [
-    d.nome, d.funcao, d.projeto, d.tipo_atestado,
-    d.data_inicio, d.data_fim, d.dias, d.criado_em,
-    d.atendimento_status || 'pendente'
-  ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','));
+  const cabecalho = [
+    'Nome', 'Cargo', 'Projeto', 'Tipo de Atestado',
+    'Data Início', 'Data Fim', 'Dias Afastados',
+    'Data de Envio', 'Hora de Envio', 'Status'
+  ];
 
-  const csv  = [cabecalho.join(','), ...linhas].join('\n');
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
-  const url  = URL.createObjectURL(blob);
-  const a    = Object.assign(document.createElement('a'), {
+  const linhas = dadosFiltrados.map(d => {
+    const enviadoEm = d.criado_em ? new Date(d.criado_em) : null;
+    return [
+      d.nome          ?? '',
+      d.funcao        ?? '',
+      d.projeto       ?? '',
+      d.tipo_atestado ?? '',
+      formatarDataBR(d.data_inicio),
+      formatarDataBR(d.data_fim),
+      d.dias ?? '',
+      enviadoEm ? enviadoEm.toLocaleDateString('pt-BR') : '',
+      enviadoEm ? enviadoEm.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '',
+      d.atendimento_status === 'feito' ? 'Atendido' : 'Pendente'
+    ];
+  });
+
+  const e = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  const thStyle = 'background:#163f2a;color:#fff;font-weight:bold;padding:6px 10px;border:1px solid #2f9e57;white-space:nowrap';
+  const tdStyle = 'padding:5px 10px;border:1px solid #dde;vertical-align:middle';
+
+  const cabecalhoHtml = cabecalho.map(h => `<th style="${thStyle}">${e(h)}</th>`).join('');
+  const linhasHtml    = linhas.map(row =>
+    `<tr>${row.map(c => `<td style="${tdStyle}">${e(c)}</td>`).join('')}</tr>`
+  ).join('');
+
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office"
+  xmlns:x="urn:schemas-microsoft-com:office:excel"
+  xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+  <meta charset="UTF-8">
+  <!--[if gte mso 9]><xml>
+  <x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>
+  <x:Name>Atestados</x:Name>
+  <x:WorksheetOptions><x:FreezePanes/><x:FrozenNoSplit/>
+  <x:SplitHorizontal>1</x:SplitHorizontal>
+  <x:TopRowBottomPane>1</x:TopRowBottomPane>
+  </x:WorksheetOptions>
+  </x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook>
+  </xml><![endif]-->
+  <style>
+    body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; }
+    table { border-collapse: collapse; }
+  </style>
+</head>
+<body>
+  <table>
+    <thead><tr>${cabecalhoHtml}</tr></thead>
+    <tbody>${linhasHtml}</tbody>
+  </table>
+</body>
+</html>`;
+
+  // BOM explícito via ﻿ — garante UTF-8 no Excel
+  const blob = new Blob(['﻿' + html], {
+    type: 'application/vnd.ms-excel;charset=UTF-8'
+  });
+
+  const url = URL.createObjectURL(blob);
+  const a   = Object.assign(document.createElement('a'), {
     href: url,
-    download: `atestados_${codigoProjeto}_${new Date().toISOString().substring(0, 10)}.csv`
+    download: `atestados_${codigoProjeto}_${new Date().toISOString().substring(0, 10)}.xls`
   });
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  setStatus(`CSV exportado com ${dadosFiltrados.length} registro${dadosFiltrados.length !== 1 ? 's' : ''}.`);
+  setStatus(`Excel exportado com ${dadosFiltrados.length} registro${dadosFiltrados.length !== 1 ? 's' : ''}.`);
+}
+
+function formatarDataBR(valor) {
+  if (!valor) return '';
+  const m = String(valor).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : String(valor);
 }
 
 /* ─── Exportar PDF ───────────────────────────────────────── */

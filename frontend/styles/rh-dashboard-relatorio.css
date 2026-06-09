@@ -194,6 +194,12 @@
 
 .dash-export-btn:hover { background: var(--green-900); }
 
+.dash-export-btn--excel {
+  background: #16a34a;
+}
+
+.dash-export-btn--excel:hover { background: #15803d; }
+
 .dash-export-btn--pdf {
   background: #1d4ed8;
 }
