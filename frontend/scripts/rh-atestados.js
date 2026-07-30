@@ -7,8 +7,6 @@ async function registrarEventoBackend(acao, detalhes = {}) {
     await firebase.firestore().collection('eventos_frontend').add({
       acao,
       pagina: 'rh-atestados.html',
-      email: localStorage.getItem('rh_user_email') || '',
-      usuarioId: localStorage.getItem('rh_user_id') || '',
       detalhes,
       criado_em: new Date().toISOString()
     });

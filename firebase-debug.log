@@ -1,0 +1,60 @@
+[debug] [2026-07-30T17:02:13.231Z] ----------------------------------------------------------------------
+[debug] [2026-07-30T17:02:13.233Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\durao\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js deploy --only storage
+[debug] [2026-07-30T17:02:13.233Z] CLI Version:   15.15.0
+[debug] [2026-07-30T17:02:13.233Z] Platform:      win32
+[debug] [2026-07-30T17:02:13.233Z] Node Version:  v24.14.1
+[debug] [2026-07-30T17:02:13.233Z] Time:          Thu Jul 30 2026 14:02:13 GMT-0300 (Horário Padrão de Brasília)
+[debug] [2026-07-30T17:02:13.233Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-07-30T17:02:14.747Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-07-30T17:02:14.747Z] > authorizing via signed-in user (duraoraphael@gmail.com)
+[debug] [2026-07-30T17:02:14.747Z] [iam] checking project normatel-rh for permissions ["firebase.projects.get","firebaserules.releases.create","firebaserules.releases.update","firebaserules.rulesets.create"]
+[debug] [2026-07-30T17:02:14.748Z] Checked if tokens are valid: true, expires at: 1785432865623
+[debug] [2026-07-30T17:02:14.749Z] Checked if tokens are valid: true, expires at: 1785432865623
+[debug] [2026-07-30T17:02:14.749Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/normatel-rh:testIamPermissions [none]
+[debug] [2026-07-30T17:02:14.749Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/normatel-rh:testIamPermissions  x-goog-user-project=normatel-rh
+[debug] [2026-07-30T17:02:14.749Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/normatel-rh:testIamPermissions {"permissions":["firebase.projects.get","firebaserules.releases.create","firebaserules.releases.update","firebaserules.rulesets.create"]}
+[debug] [2026-07-30T17:02:15.740Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/normatel-rh:testIamPermissions 200
+[debug] [2026-07-30T17:02:15.741Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/normatel-rh:testIamPermissions {"permissions":["firebase.projects.get","firebaserules.releases.create","firebaserules.releases.update","firebaserules.rulesets.create"]}
+[info] 
+[info] === Deploying to 'normatel-rh'...
+[info] 
+[info] i  deploying storage 
+[info] i  storage: ensuring required API firebasestorage.googleapis.com is enabled... 
+[debug] [2026-07-30T17:02:15.742Z] Checked if tokens are valid: true, expires at: 1785432865623
+[debug] [2026-07-30T17:02:15.743Z] Checked if tokens are valid: true, expires at: 1785432865623
+[debug] [2026-07-30T17:02:15.743Z] >>> [apiv2][query] GET https://firebasestorage.googleapis.com/v1alpha/projects/normatel-rh/defaultBucket [none]
+[debug] [2026-07-30T17:02:17.097Z] <<< [apiv2][status] GET https://firebasestorage.googleapis.com/v1alpha/projects/normatel-rh/defaultBucket 200
+[debug] [2026-07-30T17:02:17.097Z] <<< [apiv2][body] GET https://firebasestorage.googleapis.com/v1alpha/projects/normatel-rh/defaultBucket {"name":"projects/normatel-rh/defaultBucket","location":"US-CENTRAL1","bucket":{"name":"projects/normatel-rh/buckets/normatel-rh.firebasestorage.app"},"storageClass":"REGIONAL"}
+[info] i  firebase.storage: checking storage.rules for compilation errors... 
+[debug] [2026-07-30T17:02:17.098Z] Checked if tokens are valid: true, expires at: 1785432865623
+[debug] [2026-07-30T17:02:17.098Z] Checked if tokens are valid: true, expires at: 1785432865623
+[debug] [2026-07-30T17:02:17.098Z] >>> [apiv2][query] POST https://firebaserules.googleapis.com/v1/projects/normatel-rh:test [none]
+[debug] [2026-07-30T17:02:17.098Z] >>> [apiv2][body] POST https://firebaserules.googleapis.com/v1/projects/normatel-rh:test [omitted]
+[debug] [2026-07-30T17:02:17.854Z] <<< [apiv2][status] POST https://firebaserules.googleapis.com/v1/projects/normatel-rh:test 200
+[debug] [2026-07-30T17:02:17.854Z] <<< [apiv2][body] POST https://firebaserules.googleapis.com/v1/projects/normatel-rh:test {}
+[info] +  firebase.storage: rules file storage.rules compiled successfully 
+[debug] [2026-07-30T17:02:17.855Z] Checked if tokens are valid: true, expires at: 1785432865623
+[debug] [2026-07-30T17:02:17.855Z] Checked if tokens are valid: true, expires at: 1785432865623
+[debug] [2026-07-30T17:02:17.855Z] >>> [apiv2][query] GET https://firebaserules.googleapis.com/v1/projects/normatel-rh/releases pageSize=10&pageToken=
+[debug] [2026-07-30T17:02:19.029Z] <<< [apiv2][status] GET https://firebaserules.googleapis.com/v1/projects/normatel-rh/releases 200
+[debug] [2026-07-30T17:02:19.030Z] <<< [apiv2][body] GET https://firebaserules.googleapis.com/v1/projects/normatel-rh/releases {"releases":[{"name":"projects/normatel-rh/releases/cloud.firestore","rulesetName":"projects/normatel-rh/rulesets/1d9400af-ec8d-41cc-beb5-a56d06895283","createTime":"2026-02-13T17:33:40.932318Z","updateTime":"2026-05-22T12:59:46.566374Z"},{"name":"projects/normatel-rh/releases/firebase.storage/normatel-rh","rulesetName":"projects/normatel-rh/rulesets/e720b7e3-0b23-496d-bd8f-7eb34d46e5bc","createTime":"2026-02-27T01:13:17.365627Z","updateTime":"2026-02-27T01:13:17.365627Z"},{"name":"projects/normatel-rh/releases/firebase.storage/normatel-rh.firebasestorage.app","rulesetName":"projects/normatel-rh/rulesets/8dfe58fd-7964-4fdb-850e-8da768e724bc","createTime":"2026-02-27T00:23:40.349227Z","updateTime":"2026-07-30T16:54:42.496906Z"}]}
+[debug] [2026-07-30T17:02:19.036Z] Checked if tokens are valid: true, expires at: 1785432865623
+[debug] [2026-07-30T17:02:19.036Z] Checked if tokens are valid: true, expires at: 1785432865623
+[debug] [2026-07-30T17:02:19.036Z] >>> [apiv2][query] GET https://firebaserules.googleapis.com/v1/projects/normatel-rh/rulesets/e720b7e3-0b23-496d-bd8f-7eb34d46e5bc [none]
+[debug] [2026-07-30T17:02:19.378Z] <<< [apiv2][status] GET https://firebaserules.googleapis.com/v1/projects/normatel-rh/rulesets/e720b7e3-0b23-496d-bd8f-7eb34d46e5bc 200
+[debug] [2026-07-30T17:02:19.378Z] <<< [apiv2][body] GET https://firebaserules.googleapis.com/v1/projects/normatel-rh/rulesets/e720b7e3-0b23-496d-bd8f-7eb34d46e5bc [omitted]
+[info] i  storage: uploading rules storage.rules... 
+[debug] [2026-07-30T17:02:19.379Z] Checked if tokens are valid: true, expires at: 1785432865623
+[debug] [2026-07-30T17:02:19.379Z] Checked if tokens are valid: true, expires at: 1785432865623
+[debug] [2026-07-30T17:02:19.379Z] >>> [apiv2][query] POST https://firebaserules.googleapis.com/v1/projects/normatel-rh/rulesets [none]
+[debug] [2026-07-30T17:02:19.379Z] >>> [apiv2][body] POST https://firebaserules.googleapis.com/v1/projects/normatel-rh/rulesets [omitted]
+[debug] [2026-07-30T17:02:20.454Z] <<< [apiv2][status] POST https://firebaserules.googleapis.com/v1/projects/normatel-rh/rulesets 200
+[debug] [2026-07-30T17:02:20.454Z] <<< [apiv2][body] POST https://firebaserules.googleapis.com/v1/projects/normatel-rh/rulesets {"name":"projects/normatel-rh/rulesets/daf1e87a-67c1-4768-b224-5a18f12632bf","source":{"files":[{"content":"rules_version = '2';\r\nservice firebase.storage {\r\n  match /b/{bucket}/o {\r\n    // Envio de atestado (formulário público, funcionário sem login).\r\n    // O painel RH usa login Microsoft (MSAL), que NÃO cria sessão Firebase\r\n    // Auth, portanto request.auth é sempre null no client.\r\n    // - Escrita: pública, mas restrita a PDF e < 30MB.\r\n    // - Leitura via regra: BLOQUEADA (get/list negados). O acesso ao PDF\r\n    //   ocorre exclusivamente pela URL de download com token secreto\r\n    //   (alt=media&token=UUID), que NÃO é avaliada por estas regras.\r\n    //   Ninguém consegue listar nem baixar arquivos de outro envio sem o\r\n    //   token, que só é conhecido por quem enviou e pelo painel RH.\r\n    match /envios/{envioId}/{fileName} {\r\n      allow write: if request.resource.size < 30 * 1024 * 1024\r\n                   && request.resource.contentType == 'application/pdf';\r\n      allow read: if false;\r\n    }\r\n\r\n    // Caminho legado: escrita e leitura bloqueadas.\r\n    match /atestados/{allPaths=**} {\r\n      allow read, write: if false;\r\n    }\r\n\r\n    // Everything else: blocked\r\n    match /{allPaths=**} {\r\n      allow read, write: if false;\r\n    }\r\n  }\r\n}\n","name":"storage.rules"}]},"createTime":"2026-07-30T17:02:19.678703Z","metadata":{"services":["firebase.storage"]}}
+[debug] [2026-07-30T17:02:20.454Z] [rules] created ruleset projects/normatel-rh/rulesets/daf1e87a-67c1-4768-b224-5a18f12632bf
+[debug] [2026-07-30T17:02:20.454Z] [rules] releasing firebase.storage/normatel-rh.firebasestorage.app with ruleset projects/normatel-rh/rulesets/daf1e87a-67c1-4768-b224-5a18f12632bf
+[debug] [2026-07-30T17:02:20.455Z] Checked if tokens are valid: true, expires at: 1785432865623
+[debug] [2026-07-30T17:02:20.455Z] Checked if tokens are valid: true, expires at: 1785432865623
+[debug] [2026-07-30T17:02:20.455Z] >>> [apiv2][query] PATCH https://firebaserules.googleapis.com/v1/projects/normatel-rh/releases/firebase.storage/normatel-rh.firebasestorage.app [none]
+[debug] [2026-07-30T17:02:20.455Z] >>> [apiv2][body] PATCH https://firebaserules.googleapis.com/v1/projects/normatel-rh/releases/firebase.storage/normatel-rh.firebasestorage.app {"release":{"name":"projects/normatel-rh/releases/firebase.storage/normatel-rh.firebasestorage.app","rulesetName":"projects/normatel-rh/rulesets/daf1e87a-67c1-4768-b224-5a18f12632bf"}}
+[debug] [2026-07-30T17:02:21.532Z] <<< [apiv2][status] PATCH https://firebaserules.googleapis.com/v1/projects/normatel-rh/releases/firebase.storage/normatel-rh.firebasestorage.app 200

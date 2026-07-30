@@ -14,3 +14,7 @@ functions/.env.*
 *.key
 service-account*.json
 *-adminsdk-*.json
+
+# Dados locais com PII — nunca commitar
+backend/data/
+*.json.json

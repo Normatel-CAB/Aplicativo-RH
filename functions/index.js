@@ -393,37 +393,55 @@ const ROTAS_ADMIN = [
   "/api/envios/status/",
   "/api/envios/excluir/",
   "/api/envios/restaurar/",
-  "/api/eventos",
+  "/api/arquivos/proxy",
+  "/api/email",
 ];
 
-function rotaExigeAdmin(pathname) {
-  return ROTAS_ADMIN.some((prefixo) => pathname.startsWith(prefixo));
+// GET /api/eventos e GET /api/envios expõem PII; POST /api/eventos é público
+// (telemetria). Trata GET dessas rotas como admin.
+function rotaExigeAdmin(pathname, metodo) {
+  if (ROTAS_ADMIN.some((prefixo) => pathname.startsWith(prefixo))) return true;
+  if (metodo === "GET" && (pathname === "/api/eventos" || pathname === "/api/envios")) return true;
+  return false;
 }
 
-function decodificarJwtPayload(token) {
-  try {
-    const partes = String(token || "").split(".");
-    if (partes.length !== 3) return null;
-    return JSON.parse(Buffer.from(partes[1], "base64url").toString("utf8"));
-  } catch {
-    return null;
+const AAD_TENANT_ID = String(process.env.AAD_TENANT_ID || "6b8311fd-897b-42b3-8ec4-bb68ddf44a01").trim();
+const AAD_CLIENT_ID = String(process.env.AAD_CLIENT_ID || "89b8bf1d-7f65-466d-81eb-150c26a0b57a").trim();
+const AAD_ISSUER = `https://login.microsoftonline.com/${AAD_TENANT_ID}/v2.0`;
+let _aadJwks = null;
+
+async function obterAadJwks() {
+  if (!_aadJwks) {
+    const {createRemoteJWKSet} = await import("jose");
+    _aadJwks = createRemoteJWKSet(
+        new URL(`https://login.microsoftonline.com/${AAD_TENANT_ID}/discovery/v2.0/keys`),
+    );
   }
+  return _aadJwks;
 }
 
-function verificarTokenAdmin(req) {
+// Valida ASSINATURA do id_token Entra ID (JWKS remoto) e confere ADMIN_EMAILS.
+// Fallback: token estático forte X-Admin-Token. Fail-closed.
+async function verificarTokenAdmin(req) {
   const adminEmails = String(process.env.ADMIN_EMAILS || "")
       .split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
 
   const authHeader = String(req.headers["authorization"] || "").trim();
   if (adminEmails.length > 0 && authHeader.startsWith("Bearer ")) {
-    const payload = decodificarJwtPayload(authHeader.slice(7));
-    if (!payload) return false;
-    const agora = Math.floor(Date.now() / 1000);
-    if (payload.exp && payload.exp < agora) return false;
-    const email = String(
-        payload.preferred_username || payload.email || payload.upn || ""
-    ).toLowerCase();
-    return Boolean(email) && adminEmails.includes(email);
+    try {
+      const {jwtVerify} = await import("jose");
+      const jwks = await obterAadJwks();
+      const {payload} = await jwtVerify(authHeader.slice(7), jwks, {
+        issuer: AAD_ISSUER,
+        audience: AAD_CLIENT_ID,
+      });
+      const email = String(
+          payload.preferred_username || payload.email || payload.upn || "",
+      ).toLowerCase();
+      return Boolean(email) && adminEmails.includes(email);
+    } catch {
+      return false;
+    }
   }
 
   // Fallback: token estático via X-Admin-Token (para integrações externas)
@@ -461,7 +479,7 @@ async function responderApi(req, res) {
     return;
   }
 
-  if (req.method !== "OPTIONS" && rotaExigeAdmin(pathname) && !verificarTokenAdmin(req)) {
+  if (req.method !== "OPTIONS" && rotaExigeAdmin(pathname, req.method) && !(await verificarTokenAdmin(req))) {
     res.status(401).json({error: "Não autorizado."});
     return;
   }
@@ -685,26 +703,6 @@ async function responderApi(req, res) {
 
       await ref.delete();
       res.status(200).json({id, rejeitado: true, mensagem: "Usuário removido do Firestore e Authentication"});
-      return;
-    }
-
-    if (/^\/api\/usuarios\/rejeitar\//.test(pathname) && req.method === "POST") {
-      const id = pathname.split("/").pop();
-      if (!id || id.length > 50) {
-        res.status(400).json({error: "ID inválido"});
-        return;
-      }
-
-      const db = await obterFirestoreObrigatorio();
-      const ref = db.collection(FIRESTORE_COLLECTIONS.usuarios).doc(String(id));
-      const doc = await ref.get();
-      if (!doc.exists) {
-        res.status(404).json({error: "Usuário não encontrado"});
-        return;
-      }
-
-      await ref.delete();
-      res.status(200).json({id, rejeitado: true, mensagem: "Usuário removido"});
       return;
     }
 

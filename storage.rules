@@ -1,22 +1,27 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-
-    // Formulário público: upload direto via client SDK
-    // Leitura pública necessária enquanto o dashboard admin não usar Firebase Auth
+    // Envio de atestado (formulário público, funcionário sem login).
+    // O painel RH usa login Microsoft (MSAL), que NÃO cria sessão Firebase
+    // Auth, portanto request.auth é sempre null no client.
+    // - Escrita: pública, mas restrita a PDF e < 30MB.
+    // - Leitura via regra: BLOQUEADA (get/list negados). O acesso ao PDF
+    //   ocorre exclusivamente pela URL de download com token secreto
+    //   (alt=media&token=UUID), que NÃO é avaliada por estas regras.
+    //   Ninguém consegue listar nem baixar arquivos de outro envio sem o
+    //   token, que só é conhecido por quem enviou e pelo painel RH.
     match /envios/{envioId}/{fileName} {
       allow write: if request.resource.size < 30 * 1024 * 1024
                    && request.resource.contentType == 'application/pdf';
-      allow read: if true;
+      allow read: if false;
     }
 
-    // Caminho legado: somente leitura, escrita completamente bloqueada
+    // Caminho legado: escrita e leitura bloqueadas.
     match /atestados/{allPaths=**} {
-      allow read: if true;
-      allow write: if false;
+      allow read, write: if false;
     }
 
-    // Tudo o mais: bloqueado
+    // Everything else: blocked
     match /{allPaths=**} {
       allow read, write: if false;
     }

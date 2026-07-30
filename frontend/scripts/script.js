@@ -603,9 +603,17 @@ function uploadComProgresso(storageRef, blob, bytesTransferidosPorArquivo, indic
       .replace(/[\u0300-\u036f]/g, '')
       .replace(/[^a-zA-Z0-9._ -]/g, '_');
 
+    // Gera um token de download secreto no próprio upload. A URL final só
+    // funciona com este token, dispensando permissão de leitura nas regras
+    // (allow read: if false) e evitando bucket público / enumeração.
+    const downloadToken = (self.crypto?.randomUUID?.() ||
+      `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`);
+
     const uploadTask = storageRef.put(blob, {
       contentType: 'application/pdf',
-      contentDisposition: `attachment; filename="${nomeSeguroHeader}"`
+      contentDisposition: `attachment; filename="${nomeSeguroHeader}"`,
+      customMetadata: {},
+      firebaseStorageDownloadTokens: downloadToken
     });
 
     uploadTask.on('state_changed', (snapshot) => {
@@ -613,9 +621,12 @@ function uploadComProgresso(storageRef, blob, bytesTransferidosPorArquivo, indic
       const totalTransferido = bytesTransferidosPorArquivo.reduce((acc, atual) => acc + atual, 0);
       const percentual = totalBytes > 0 ? (totalTransferido / totalBytes) * 100 : 0;
       atualizarProgressoUpload(percentual, `${Math.round(percentual)}%`);
-    }, reject, async () => {
+    }, reject, () => {
       try {
-        const url = await uploadTask.snapshot.ref.getDownloadURL();
+        const ref = uploadTask.snapshot.ref;
+        const bucket = ref.bucket;
+        const caminhoCodificado = encodeURIComponent(ref.fullPath);
+        const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${caminhoCodificado}?alt=media&token=${downloadToken}`;
         resolve(url);
       } catch (error) {
         reject(error);

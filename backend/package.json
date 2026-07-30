@@ -12,7 +12,8 @@
     "firebase-functions": "^7.2.0",
     "uuid": "^9.0.0",
     "pdfkit": "^0.13.0",
-    "nodemailer": "^6.9.0"
+    "nodemailer": "^6.9.0",
+    "jose": "^5.9.6"
   },
   "description": "Backend RH - Node.js nativo. Versão simplificada para desenvolvimento.",
   "keywords": [],
