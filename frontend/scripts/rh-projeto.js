@@ -507,6 +507,9 @@ function montarNomePdfPorRegistro(record, indice = 0, totalArquivos = 1) {
   let base;
   if (tipo === 'Declaração') {
     base = `DECLARAÇÃO MÉDICA - ${dataInicioCurta} - ${nomePessoa}`;
+  } else if (tipo === 'Atestado de Óbito') {
+    const grau = normalizarNomePessoaParaArquivo(record?.grau_parentesco);
+    base = `ATESTADO DE ÓBITO - ${dataInicioCurta}${grau ? ` (${grau})` : ''} - ${nomePessoa}`;
   } else {
     const totalDias = Number(record?.dias) || 0;
     const labelDias = totalDias === 1 ? 'DIA' : 'DIAS';
@@ -773,10 +776,11 @@ function criarCardRegistro(record) {
       ${criarDetalheItem('Função', record.funcao)}
       ${criarDetalheItem('Projeto', record.projeto)}
       ${criarDetalheItem('Tipo', record.tipo_atestado)}
+      ${record.tipo_atestado === 'Atestado de Óbito' ? criarDetalheItem('Grau de parentesco', record.grau_parentesco || '-') : ''}
       ${criarDetalheItem('Horas', record.horas_comparecimento || '-')}
       ${criarDetalheItem('Data início', formatarData(record.data_inicio))}
       ${criarDetalheItem('Data fim', formatarData(record.data_fim))}
-      ${criarDetalheItem('Dias', record.dias)}
+      ${record.tipo_atestado === 'Atestado de Óbito' ? '' : criarDetalheItem('Dias', record.dias)}
       ${criarDetalheItem('Enviado em', formatarDataHora(record.criado_em))}
     </div>
     <div class="detalhe-arquivos">

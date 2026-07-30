@@ -43,31 +43,38 @@ service cloud.firestore {
     }
 
     function isEnvioValido() {
-      return request.resource.data.keys().hasAll([
+      let d = request.resource.data;
+      let isObito = d.tipo_atestado == 'Atestado de Óbito';
+      return d.keys().hasAll([
           'nome','funcao','projeto','tipo_atestado',
-          'data_inicio','data_fim','dias','arquivos','criado_em'
+          'data_inicio','data_fim','arquivos','criado_em'
         ])
-        && request.resource.data.nome is string
-        && request.resource.data.funcao is string
-        && request.resource.data.projeto is string
-        && request.resource.data.tipo_atestado is string
-        && request.resource.data.data_inicio is string
-        && request.resource.data.data_fim is string
-        && request.resource.data.dias is int
-        && request.resource.data.arquivos is list
-        && request.resource.data.criado_em is string
-        && request.resource.data.nome.size() > 0
-        && request.resource.data.nome.size() <= 150
-        && request.resource.data.funcao.size() > 0
-        && request.resource.data.funcao.size() <= 120
-        && request.resource.data.projeto.size() > 0
-        && request.resource.data.projeto.size() <= 120
-        && request.resource.data.tipo_atestado.size() > 0
-        && request.resource.data.tipo_atestado.size() <= 80
-        && request.resource.data.dias >= 1
-        && request.resource.data.dias <= 365
-        && request.resource.data.arquivos.size() >= 1
-        && request.resource.data.arquivos.size() <= 10;
+        && d.nome is string
+        && d.funcao is string
+        && d.projeto is string
+        && d.tipo_atestado is string
+        && d.data_inicio is string
+        && d.data_fim is string
+        && d.arquivos is list
+        && d.criado_em is string
+        && d.nome.size() > 0
+        && d.nome.size() <= 150
+        && d.funcao.size() > 0
+        && d.funcao.size() <= 120
+        && d.projeto.size() > 0
+        && d.projeto.size() <= 120
+        && d.tipo_atestado.size() > 0
+        && d.tipo_atestado.size() <= 80
+        && d.arquivos.size() >= 1
+        && d.arquivos.size() <= 10
+        && (
+          isObito
+            ? (!d.keys().hasAny(['dias'])
+               && d.grau_parentesco is string
+               && d.grau_parentesco.size() > 0
+               && d.grau_parentesco.size() <= 40)
+            : (d.dias is int && d.dias >= 1 && d.dias <= 365)
+        );
     }
 
     function isAtualizacaoAtendimentoEnvioValida() {

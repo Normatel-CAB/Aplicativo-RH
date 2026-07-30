@@ -3,6 +3,8 @@ const tipoAtestado = document.getElementById('tipoAtestado');
 const horasWrapper = document.getElementById('horasComparecimentoWrapper');
 const horasInput = document.getElementById('horasComparecimento');
 const diasWrapper = document.getElementById('diasWrapper');
+const grauParentescoWrapper = document.getElementById('grauParentescoWrapper');
+const grauParentesco = document.getElementById('grauParentesco');
 const dataInicio = document.getElementById('dataInicio');
 const dataFim = document.getElementById('dataFim');
 const dias = document.getElementById('dias');
@@ -497,6 +499,15 @@ function calcularFimPorDias() {
     return;
   }
 
+  if (tipoAtestado.value === 'Atestado de Óbito') {
+    const isoInicioObito = displayParaISO(dataInicio.value);
+    if (isoInicioObito) {
+      dataFim.value = toInputDate(toUTCDate(isoInicioObito));
+      dataFim.setCustomValidity('');
+    }
+    return;
+  }
+
   const isoInicio = displayParaISO(dataInicio.value);
   if (!isoInicio || !dias.value) {
     return;
@@ -515,14 +526,33 @@ function calcularFimPorDias() {
 
 function atualizarCampoHoras() {
   const isDeclaracao = tipoAtestado.value === 'Declaração';
+  const isObito = tipoAtestado.value === 'Atestado de Óbito';
   horasWrapper.classList.toggle('hidden', !isDeclaracao);
   horasInput.required = isDeclaracao;
-  if (diasWrapper) {
-    diasWrapper.classList.toggle('hidden', isDeclaracao);
-  }
-  dias.required = !isDeclaracao;
 
-  if (!isDeclaracao) {
+  if (grauParentescoWrapper) {
+    grauParentescoWrapper.classList.toggle('hidden', !isObito);
+  }
+  if (grauParentesco) {
+    grauParentesco.required = isObito;
+    if (!isObito) grauParentesco.value = '';
+  }
+
+  if (diasWrapper) {
+    diasWrapper.classList.toggle('hidden', isDeclaracao || isObito);
+  }
+  dias.required = !isDeclaracao && !isObito;
+
+  if (isObito) {
+    horasInput.value = '';
+    dias.value = '';
+    dias.setCustomValidity('');
+    const isoInicioObito = displayParaISO(dataInicio.value);
+    if (isoInicioObito) {
+      dataFim.value = toInputDate(toUTCDate(isoInicioObito));
+      dataFim.setCustomValidity('');
+    }
+  } else if (!isDeclaracao) {
     horasInput.value = '';
   } else {
     dias.value = '1';
@@ -565,6 +595,11 @@ function montarNomePdfPadrao() {
 
   if (tipoAtestado.value === 'Declaração') {
     return sanitizarNomeArquivo(`DECLARAÇÃO MÉDICA - ${dataInicioCurta} - ${nomePessoa}.pdf`);
+  }
+
+  if (tipoAtestado.value === 'Atestado de Óbito') {
+    const grau = normalizarNomePessoaParaArquivo(grauParentesco?.value);
+    return sanitizarNomeArquivo(`ATESTADO DE ÓBITO - ${dataInicioCurta}${grau ? ` (${grau})` : ''} - ${nomePessoa}.pdf`);
   }
 
   const totalDias = Number(dias.value) || 0;
@@ -1003,24 +1038,36 @@ form.addEventListener('submit', async (event) => {
     const dataInicioISO = displayParaISO(dataInicio.value);
     let dataFimISO = displayParaISO(dataFim.value);
     const isDeclaracao = tipoAtestado.value === 'Declaração';
+    const isObito = tipoAtestado.value === 'Atestado de Óbito';
+
+    if (isObito && !normalizarProjeto(grauParentesco?.value)) {
+      ocultarProgressoUpload();
+      definirMensagemStatus('Selecione o grau de parentesco para o atestado de óbito.', 'error');
+      definirEstadoEnvio(false);
+      return;
+    }
+
     if (isDeclaracao) {
       dataFimISO = dataInicioISO;
       dataFim.value = dataInicio.value;
       dias.value = '1';
     }
 
-    let diasEnvio = isDeclaracao ? 1 : (Number(dias.value) || 0);
-    if (!Number.isInteger(diasEnvio) || diasEnvio < 1 || diasEnvio > 365) {
-      if (dataInicioISO && dataFimISO) {
-        const inicio = toUTCDate(dataInicioISO);
-        const fim = toUTCDate(dataFimISO);
-        diasEnvio = Math.floor((fim - inicio) / MS_POR_DIA) + 1;
-      } else {
-        throw new Error('Preencha as datas de início e fim para calcular os dias.');
+    let diasEnvio = 0;
+    if (!isObito) {
+      diasEnvio = isDeclaracao ? 1 : (Number(dias.value) || 0);
+      if (!Number.isInteger(diasEnvio) || diasEnvio < 1 || diasEnvio > 365) {
+        if (dataInicioISO && dataFimISO) {
+          const inicio = toUTCDate(dataInicioISO);
+          const fim = toUTCDate(dataFimISO);
+          diasEnvio = Math.floor((fim - inicio) / MS_POR_DIA) + 1;
+        } else {
+          throw new Error('Preencha as datas de início e fim para calcular os dias.');
+        }
       }
-    }
-    if (diasEnvio < 1 || diasEnvio > 365) {
-      throw new Error('Os dias devem ser entre 1 e 365. Verifique as datas de início e fim.');
+      if (diasEnvio < 1 || diasEnvio > 365) {
+        throw new Error('Os dias devem ser entre 1 e 365. Verifique as datas de início e fim.');
+      }
     }
 
     // Upload direto para Firebase Storage via client SDK — sem necessidade de service account no backend
@@ -1053,10 +1100,13 @@ form.addEventListener('submit', async (event) => {
       horas_comparecimento: horasInput.value ? String(Number(horasInput.value)) : '',
       data_inicio: dataInicioISO,
       data_fim: dataFimISO,
-      dias: diasEnvio,
+      grau_parentesco: isObito ? grauParentesco.value : null,
       arquivos: arquivosUpload,
       criado_em: new Date().toISOString()
     };
+    if (!isObito) {
+      novoEnvio.dias = diasEnvio;
+    }
 
     await window.db.collection('envios_atestados').add(novoEnvio);
 

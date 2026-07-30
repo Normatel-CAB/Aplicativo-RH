@@ -192,6 +192,9 @@ function montarNomePdfPorRegistro(record, indice = 0, totalArquivos = 1) {
   let base;
   if (tipo === 'Declaração') {
     base = `DECLARAÇÃO MÉDICA - ${dataInicioCurta} - ${nomePessoa}`;
+  } else if (tipo === 'Atestado de Óbito') {
+    const grau = normalizarNomePessoaParaArquivo(record?.grau_parentesco);
+    base = `ATESTADO DE ÓBITO - ${dataInicioCurta}${grau ? ` (${grau})` : ''} - ${nomePessoa}`;
   } else {
     const totalDias = Number(record?.dias) || 0;
     const labelDias = totalDias === 1 ? 'DIA' : 'DIAS';
