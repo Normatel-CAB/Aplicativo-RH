@@ -165,6 +165,9 @@ function liberarFormularioComProjeto(valorProjeto) {
   }
 
   definirMensagemStatus(`Projeto selecionado: ${valor}. Campo projeto bloqueado para envio.`, 'success');
+  if (typeof abrirModalAvisoAtestado === 'function') {
+    abrirModalAvisoAtestado();
+  }
 }
 
 function selecionarProjetoDoGate(valorProjeto) {
@@ -924,6 +927,13 @@ function blobToBase64(blob) {
 
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
+
+  if (!avisoAtestadoConfirmado) {
+    definirMensagemStatus('Confirme o aviso antes de enviar o atestado.', 'error');
+    abrirModalAvisoAtestado();
+    return;
+  }
+
   definirEstadoEnvio(true);
   if (mensagem) {
     mensagem.textContent = '';
@@ -1100,6 +1110,112 @@ form.addEventListener('submit', async (event) => {
   }
 });
 
+// ── Modal de aviso obrigatório antes do formulário ──────────────────
+let avisoAtestadoConfirmado = false;
+const modalAviso = document.getElementById('modalAvisoAtestado');
+const modalAvisoCheck = document.getElementById('modalAvisoConfirmarCheck');
+const modalAvisoContinuar = document.getElementById('modalAvisoContinuar');
+const modalAvisoCancelar = document.getElementById('modalAvisoCancelar');
+let avisoElementoFocoAnterior = null;
+
+function obterFocaveisModalAviso() {
+  if (!modalAviso) return [];
+  return Array.from(
+    modalAviso.querySelectorAll('input, button, [href], [tabindex]:not([tabindex="-1"])')
+  ).filter((el) => !el.disabled && el.offsetParent !== null);
+}
+
+function prenderFocoModalAviso(event) {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focaveis = obterFocaveisModalAviso();
+  if (!focaveis.length) return;
+  const primeiro = focaveis[0];
+  const ultimo = focaveis[focaveis.length - 1];
+  if (event.shiftKey && document.activeElement === primeiro) {
+    event.preventDefault();
+    ultimo.focus();
+  } else if (!event.shiftKey && document.activeElement === ultimo) {
+    event.preventDefault();
+    primeiro.focus();
+  }
+}
+
+function abrirModalAvisoAtestado() {
+  if (!modalAviso || avisoAtestadoConfirmado) return;
+  avisoElementoFocoAnterior = document.activeElement;
+  modalAviso.classList.add('modal-aberto');
+  document.body.classList.add('modal-open');
+  if (modalAvisoCheck) modalAvisoCheck.checked = false;
+  if (modalAvisoContinuar) modalAvisoContinuar.disabled = true;
+  document.addEventListener('keydown', prenderFocoModalAviso, true);
+  setTimeout(() => modalAvisoCheck?.focus(), 30);
+}
+
+function fecharModalAvisoAtestado() {
+  if (!modalAviso) return;
+  modalAviso.classList.remove('modal-aberto');
+  document.body.classList.remove('modal-open');
+  document.removeEventListener('keydown', prenderFocoModalAviso, true);
+}
+
+async function registrarConfirmacaoAviso() {
+  const confirmacao = {
+    usuarioId: localStorage.getItem('rh_user_id') || '',
+    email: localStorage.getItem('rh_user_email') || document.getElementById('email')?.value?.trim() || '',
+    formulario: 'formulario.html',
+    projeto: normalizarProjeto(projetoSelect?.value) || '',
+    user_agent: navigator.userAgent || '',
+    confirmado_em: new Date().toISOString()
+  };
+  try {
+    let ip = '';
+    try {
+      const resp = await fetch('https://api.ipify.org?format=json');
+      if (resp.ok) ip = (await resp.json()).ip || '';
+    } catch {}
+    confirmacao.ip = ip;
+    await window.db.collection('confirmacoes_aviso').add(confirmacao);
+  } catch (err) {
+    console.error('Falha ao registrar confirmação de aviso:', err?.message || err);
+    throw err;
+  }
+}
+
+if (modalAvisoCheck && modalAvisoContinuar) {
+  modalAvisoCheck.addEventListener('change', () => {
+    modalAvisoContinuar.disabled = !modalAvisoCheck.checked;
+  });
+}
+
+if (modalAvisoContinuar) {
+  modalAvisoContinuar.addEventListener('click', async () => {
+    if (!modalAvisoCheck?.checked) return;
+    modalAvisoContinuar.disabled = true;
+    try {
+      await registrarConfirmacaoAviso();
+    } catch {
+      definirMensagemStatus('Não foi possível registrar sua confirmação. Tente novamente.', 'error');
+      modalAvisoContinuar.disabled = false;
+      return;
+    }
+    avisoAtestadoConfirmado = true;
+    fecharModalAvisoAtestado();
+    if (avisoElementoFocoAnterior?.focus) avisoElementoFocoAnterior.focus();
+  });
+}
+
+if (modalAvisoCancelar) {
+  modalAvisoCancelar.addEventListener('click', () => {
+    fecharModalAvisoAtestado();
+    const backLink = document.querySelector('.form-back-btn');
+    window.location.href = backLink?.getAttribute('href') || 'index.html';
+  });
+}
+
 atualizarCampoHoras();
 validarDatasNaoFuturas();
 restaurarRascunho();
@@ -1107,4 +1223,7 @@ registrarEventoBackend('acesso_pagina');
 ocultarProgressoUpload();
 inicializarGateProjeto();
 atualizarLinkVoltarFormulario();
+if (form && !form.classList.contains('hidden')) {
+  abrirModalAvisoAtestado();
+}
 

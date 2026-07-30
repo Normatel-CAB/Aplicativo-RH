@@ -19,6 +19,30 @@
     </div>
   </header>
 
+  <div id="modalAvisoAtestado" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalAvisoTitulo" aria-describedby="modalAvisoTexto">
+    <div class="modal-dialog modal-dialog--sm">
+      <div class="modal-header">
+        <h2 id="modalAvisoTitulo" class="modal-titulo">⚠️ Atenção</h2>
+      </div>
+      <div class="modal-body">
+        <p id="modalAvisoTexto" class="modal-confirm-msg">
+          Informamos que a apresentação de atestado médico falso ou adulterado é proibida e constitui falta grave.
+        </p>
+        <p class="modal-confirm-sub">
+          Essa conduta poderá resultar em medidas disciplinares, inclusive demissão por justa causa, conforme a legislação vigente. Todos os atestados poderão ser verificados quanto à sua autenticidade.
+        </p>
+        <label class="modal-aviso-check">
+          <input type="checkbox" id="modalAvisoConfirmarCheck" />
+          <span>Li, compreendi e declaro que o documento enviado é verdadeiro.</span>
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="modalAvisoCancelar" class="btn-modal-cancelar">Cancelar</button>
+        <button type="button" id="modalAvisoContinuar" class="btn-modal-salvar" disabled>Continuar</button>
+      </div>
+    </div>
+  </div>
+
   <main class="container main-content">
     <section class="page-head">
       <h1>Formulario de envio</h1>

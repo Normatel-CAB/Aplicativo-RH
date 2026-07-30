@@ -3174,6 +3174,30 @@ body.modal-open {
   scrollbar-color: var(--green-200) transparent;
 }
 
+.modal-aviso-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 12px 14px;
+  border: 1px solid #c4dccb;
+  border-radius: var(--radius-sm);
+  background: #f3f9f4;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--green-900);
+  cursor: pointer;
+  line-height: 1.4;
+}
+.modal-aviso-check input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  flex-shrink: 0;
+  accent-color: var(--green-600, #2e7d32);
+  cursor: pointer;
+}
+
 /* ── form grid interno ──────────────────────────────────────────── */
 .modal-form-grid {
   display: grid;
