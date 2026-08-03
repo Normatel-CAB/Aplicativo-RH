@@ -261,11 +261,18 @@ async function obterUrlAssinadaStorage(caminhoStorage) {
   }
 
   const backendBase = obterBackendConfigurado();
-  const resposta = await requisicaoBackendJson(`${backendBase}/api/arquivos/signed-url?caminho=${encodeURIComponent(caminhoStorage)}`);
-  if (!resposta || typeof resposta.url !== 'string' || !resposta.url.trim()) {
-    throw new Error('Falha ao obter URL de download.');
+  // Tenta Signed URL primeiro (URL direta do GCS). Se o backend nao consegue
+  // assinar (sem private_key/IAM), cai para o proxy /download, que faz stream
+  // via Admin SDK ignorando as Storage Rules. Resolve o 403 sem IAM extra.
+  try {
+    const resposta = await requisicaoBackendJson(`${backendBase}/api/arquivos/signed-url?caminho=${encodeURIComponent(caminhoStorage)}`);
+    if (resposta && typeof resposta.url === 'string' && resposta.url.trim()) {
+      return resposta.url.trim();
+    }
+  } catch (_erroSignedUrl) {
+    // ignora e usa o proxy abaixo
   }
-  return resposta.url.trim();
+  return `${backendBase}/api/arquivos/download?caminho=${encodeURIComponent(caminhoStorage)}`;
 }
 
 function montarLinkArquivo(record, urlArquivo) {

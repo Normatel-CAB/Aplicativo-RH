@@ -671,6 +671,47 @@ async function responderApi(req, res) {
       return;
     }
 
+    // Proxy de download via Admin SDK. Le o arquivo com credencial de servico
+    // (ignora as Storage Rules) e faz stream ao cliente. Nao depende de Signed
+    // URL nem de token de download - resolve o 403 sem exigir IAM extra.
+    if (pathname === "/api/arquivos/download" && req.method === "GET") {
+      const caminhoArquivo = String(req.query.caminho || "").trim();
+      if (!validarCaminhoStorage(caminhoArquivo)) {
+        res.status(400).json({error: "Caminho de Storage inválido."});
+        return;
+      }
+
+      const bucket = await obterStorageObrigatorio();
+      const file = bucket.file(caminhoArquivo);
+      const [existe] = await file.exists();
+      if (!existe) {
+        res.status(404).json({error: "Arquivo não encontrado."});
+        return;
+      }
+
+      try {
+        const [metadata] = await file.getMetadata();
+        const contentType = metadata.contentType || "application/pdf";
+        const nomeBase = sanitizarNomeArquivoProxy(caminhoArquivo.split("/").pop());
+        res.setHeader("Content-Type", contentType);
+        res.setHeader("Content-Disposition", `inline; filename="${nomeBase}"`);
+        res.setHeader("Cache-Control", "private, max-age=0, no-store");
+        if (metadata.size) res.setHeader("Content-Length", metadata.size);
+
+        const stream = file.createReadStream();
+        stream.on("error", (erroStream) => {
+          logger.error("Falha no stream de download", {caminho: caminhoArquivo, erro: erroStream.message || erroStream});
+          if (!res.headersSent) res.status(500).json({error: "Falha ao ler o arquivo."});
+          else res.destroy();
+        });
+        stream.pipe(res);
+      } catch (erroDownload) {
+        logger.error("Falha no download via Admin SDK", {caminho: caminhoArquivo, erro: erroDownload.message || erroDownload});
+        if (!res.headersSent) res.status(500).json({error: "Falha ao baixar o arquivo."});
+      }
+      return;
+    }
+
     if (pathname === "/api/eventos" && req.method === "GET") {
       const limit = Math.min(parseInt(req.query.limit, 10) || 200, 1000);
       const db = await obterFirestoreObrigatorio();
