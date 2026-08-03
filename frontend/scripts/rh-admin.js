@@ -323,23 +323,15 @@ async function excluirColaborador(usuarioId, usuarioNome, usuarioEmail) {
 
   definirMensagem('Excluindo colaborador...', 'loading');
 
+  // Exclusão é feita server-side (Admin SDK remove do Firestore e do Auth).
   try {
-    await window.firebase.firestore().collection('usuarios_rh').doc(String(usuarioId)).delete();
-  } catch (erroFirestore) {
-    if (!erroPermissaoFirestore(erroFirestore)) {
-      definirMensagem(`❌ Erro ao excluir colaborador: ${erroFirestore.message}`, 'error');
-      return;
-    }
-
-    try {
-      await requisicaoBackendJson(`/api/usuarios/rejeitar/${encodeURIComponent(String(usuarioId))}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-    } catch (erroBackend) {
-      definirMensagem(`❌ Erro ao excluir colaborador: ${erroBackend.message}`, 'error');
-      return;
-    }
+    await requisicaoBackendJson(`/api/usuarios/rejeitar/${encodeURIComponent(String(usuarioId))}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (erroBackend) {
+    definirMensagem('❌ Erro ao excluir colaborador.', 'error');
+    return;
   }
 
   definirMensagem(`✅ ${usuarioNome} foi excluído e terá acesso revogado.`, 'success');
@@ -410,8 +402,8 @@ async function carregarUsuariosCadastrados() {
   setUsuariosCadastradosStatus('Carregando colaboradores cadastrados...', 'info');
 
   try {
-    const snap = await window.firebase.firestore().collection('usuarios_rh').orderBy('criado_em', 'desc').get();
-    usuariosCadastradosCache = snap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
+    const lista = await requisicaoBackendJson('/api/usuarios');
+    usuariosCadastradosCache = Array.isArray(lista) ? lista : [];
     aplicarFiltrosUsuariosCadastrados();
   } catch (error) {
     usuariosCadastradosCache = [];
@@ -510,52 +502,8 @@ async function confirmarSincronizacaoUsuario() {
 
   definirMensagem('Sincronizando usuário na fila de aprovação...', 'loading');
 
-  try {
-    const query = await window.firebase.firestore().collection('usuarios_rh').where('email', '==', email).limit(1).get();
-    if (!query.empty) {
-      const doc = query.docs[0];
-      const atual = doc.data() || {};
-      const statusAtual = String(atual.status || '').toLowerCase();
-      const aprovadoAtual = atual.aprovado === true || statusAtual === 'aprovado';
-
-      if (aprovadoAtual) {
-        definirMensagem('Usuário já está aprovado. Nenhuma alteração foi necessária.', 'info');
-      } else {
-        await doc.ref.set({
-          email,
-          nome,
-          status: 'pendente',
-          aprovado: false,
-          atualizado_em: new Date().toISOString()
-        }, { merge: true });
-        definirMensagem('Usuário sincronizado e marcado como pendente de aprovação.', 'success');
-      }
-    } else {
-      await window.firebase.firestore().collection('usuarios_rh').add({
-        email,
-        nome,
-        status: 'pendente',
-        aprovado: false,
-        criado_em: new Date().toISOString()
-      });
-      definirMensagem('Usuário criado na fila de aprovação com sucesso.', 'success');
-    }
-
-    setTimeout(() => {
-      carregarUsuariosPendentes();
-    }, 600);
-    if (panel) {
-      panel.classList.add('hidden');
-      panel.setAttribute('aria-hidden', 'true');
-    }
-    return;
-  } catch (error) {
-    if (!erroPermissaoFirestore(error)) {
-      definirMensagem(`❌ Falha na sincronização: ${error.message}`, 'error');
-      return;
-    }
-  }
-
+  // Criação/sincronização é feita server-side (Admin SDK). O client não
+  // escreve mais em usuarios_rh — a regra bloqueia update/set direto.
   try {
     const cadastro = await requisicaoBackendJson('/api/usuarios', {
       method: 'POST',
@@ -734,72 +682,36 @@ async function carregarUsuariosPendentes() {
   const carregando = document.getElementById('carregando');
   carregando.classList.remove('hidden');
   try {
-    // Busca usuários e filtra pendentes por compatibilidade de modelo.
-    const snap = await window.firebase.firestore().collection('usuarios_rh').get();
+    // Leitura via API (Admin SDK) — Firestore bloqueia leitura de usuarios_rh.
+    const data = await requisicaoBackendJson('/api/usuarios/pendentes');
+    const docsPendentes = (Array.isArray(data) ? data : []).map((usuario) => ({
+      id: String(usuario?.id || ''),
+      usuario: usuario || {}
+    }));
     carregando.classList.add('hidden');
-    const docsPendentes = snap.docs.filter((doc) => {
-      const usuario = doc.data() || {};
-      const status = String(usuario.status || '').toLowerCase();
-      const aprovado = usuario.aprovado === true;
-      return status === 'pendente' || (!aprovado && status !== 'aprovado' && status !== 'rejeitado');
-    }).map((doc) => ({ id: doc.id, usuario: doc.data() || {} }));
-
     renderizarListaPendentes(docsPendentes);
-  } catch (err) {
-    if (erroPermissaoFirestore(err)) {
-      try {
-        const data = await requisicaoBackendJson('/api/usuarios/pendentes');
-        const docsPendentes = (Array.isArray(data) ? data : []).map((usuario) => ({
-          id: String(usuario?.id || ''),
-          usuario: usuario || {}
-        }));
-        carregando.classList.add('hidden');
-        renderizarListaPendentes(docsPendentes);
-        if (!docsPendentes.length) {
-          definirMensagem('Nenhum usuário pendente de aprovação.', 'info');
-        }
-        return;
-      } catch (erroBackend) {
-        carregando.classList.add('hidden');
-        definirMensagem(`❌ Erro ao carregar usuários (Firestore e backend): ${erroBackend.message}`, 'error');
-        return;
-      }
+    if (!docsPendentes.length) {
+      definirMensagem('Nenhum usuário pendente de aprovação.', 'info');
     }
-
+  } catch (erroBackend) {
     carregando.classList.add('hidden');
-    definirMensagem(`❌ Erro ao carregar usuários: ${err.message}`, 'error');
+    definirMensagem('❌ Erro ao carregar usuários.', 'error');
   }
 }
 
 async function aprovarUsuario(usuarioId, usuarioNome) {
   definirMensagem('⏳ Aprovando usuário...', 'loading');
   try {
-    await window.firebase.firestore().collection('usuarios_rh').doc(usuarioId).update({ status: 'aprovado', aprovado: true, atualizado_em: new Date().toISOString() });
+    await requisicaoBackendJson(`/api/usuarios/aprovar/${encodeURIComponent(usuarioId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
     definirMensagem(`✅ ${usuarioNome} foi aprovado com sucesso!`, 'success');
     setTimeout(() => {
       carregarUsuariosPendentes();
     }, 1500);
-  } catch (err) {
-    if (erroPermissaoFirestore(err)) {
-      try {
-        await requisicaoBackendJson(`/api/usuarios/aprovar/${encodeURIComponent(usuarioId)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
-        definirMensagem(`✅ ${usuarioNome} foi aprovado com sucesso!`, 'success');
-        setTimeout(() => {
-          carregarUsuariosPendentes();
-        }, 1500);
-        return;
-      } catch (erroBackend) {
-        console.error('Erro ao aprovar (backend):', erroBackend);
-        definirMensagem(`❌ Erro ao aprovar: ${erroBackend.message}`, 'error');
-        return;
-      }
-    }
-
-    console.error('Erro ao aprovar:', err);
-    definirMensagem(`❌ Erro ao aprovar: ${err.message}`, 'error');
+  } catch (erroBackend) {
+    definirMensagem('❌ Erro ao aprovar usuário.', 'error');
   }
 }
 
@@ -817,33 +729,16 @@ async function rejeitarUsuario(usuarioId, usuarioNome) {
 
   definirMensagem('⏳ Rejeitando usuário...', 'loading');
   try {
-    // Atualiza o status do usuário para "rejeitado" no Firestore
-    await window.firebase.firestore().collection('usuarios_rh').doc(usuarioId).update({ status: 'rejeitado', aprovado: false, atualizado_em: new Date().toISOString() });
+    await requisicaoBackendJson(`/api/usuarios/rejeitar/${encodeURIComponent(usuarioId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
     definirMensagem(`✅ ${usuarioNome} foi rejeitado e removido do sistema.`, 'success');
     setTimeout(() => {
       carregarUsuariosPendentes();
     }, 1500);
-  } catch (err) {
-    if (erroPermissaoFirestore(err)) {
-      try {
-        await requisicaoBackendJson(`/api/usuarios/rejeitar/${encodeURIComponent(usuarioId)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
-        definirMensagem(`✅ ${usuarioNome} foi rejeitado e removido do sistema.`, 'success');
-        setTimeout(() => {
-          carregarUsuariosPendentes();
-        }, 1500);
-        return;
-      } catch (erroBackend) {
-        console.error('Erro ao rejeitar (backend):', erroBackend);
-        definirMensagem(`❌ Erro ao rejeitar: ${erroBackend.message}`, 'error');
-        return;
-      }
-    }
-
-    console.error('Erro ao rejeitar:', err);
-    definirMensagem(`❌ Erro ao rejeitar: ${err.message}`, 'error');
+  } catch (erroBackend) {
+    definirMensagem('❌ Erro ao rejeitar usuário.', 'error');
   }
 }
 

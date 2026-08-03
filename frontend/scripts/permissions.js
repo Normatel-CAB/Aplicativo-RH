@@ -77,37 +77,40 @@
   // Lê o cargo salvo no documento do usuário e atualiza o localStorage.
   // Retorna Promise que resolve com o cargo atual.
 
+  function resolverApiBase() {
+    var cfg = String(localStorage.getItem('rh_backend_url') || '').trim();
+    if (cfg) { return cfg.replace(/\/+$/, ''); }
+    var host = String(window.location.hostname || '').toLowerCase();
+    if (host === 'localhost' || host === '127.0.0.1') { return 'http://localhost:3001'; }
+    if (window.__RH_BACKEND_URL__) { return String(window.__RH_BACKEND_URL__).trim().replace(/\/+$/, ''); }
+    return '';
+  }
+
+  // Sincroniza o cargo a partir da API (token AAD validado no servidor).
+  // A leitura direta de usuarios_rh foi bloqueada por regra — o cargo é
+  // autoritativo apenas no servidor, impedindo forjar 'admin' no client.
   function sincronizarRole() {
     return new Promise(function (resolve) {
-      var email = String(localStorage.getItem(STORAGE_EMAIL_KEY) || '').trim().toLowerCase();
-
-      if (!email || typeof window.firebase === 'undefined' || typeof window.firebase.firestore !== 'function') {
-        resolve(getRole());
-        return;
-      }
+      var token = String(localStorage.getItem('rh_auth_token') || '').trim();
+      if (!token) { resolve(getRole()); return; }
 
       try {
-        window.firebase.firestore()
-          .collection('usuarios_rh')
-          .where('email', '==', email)
-          .limit(1)
-          .get()
-          .then(function (snap) {
-            if (!snap.empty) {
-              var dados = snap.docs[0].data() || {};
+        fetch(resolverApiBase() + '/api/usuarios/me', {
+          headers: { 'Authorization': 'Bearer ' + token }
+        })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (dados) {
+            if (dados && dados.role) {
               var roleAnterior = getRole();
-              var r = String(dados.role || 'colaborador').toLowerCase().trim();
+              var r = String(dados.role).toLowerCase().trim();
               setRole(ROLES[r] ? r : 'colaborador');
-              // Se o cargo mudou (ex.: estava como colaborador no cache), aplica UI imediatamente
               if (roleAnterior !== getRole()) {
                 aplicarPermissoesUI();
               }
             }
             resolve(getRole());
           })
-          .catch(function () {
-            resolve(getRole());
-          });
+          .catch(function () { resolve(getRole()); });
       } catch (_e) {
         resolve(getRole());
       }

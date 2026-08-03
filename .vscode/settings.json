@@ -11,5 +11,6 @@
     "**/*.db-wal"
   ],
   "liveServer.settings.wait": 1000,
-  "liveServer.settings.fullReload": false
+  "liveServer.settings.fullReload": false,
+  "liveServer.settings.port": 5501
 }

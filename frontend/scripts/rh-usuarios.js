@@ -35,6 +35,23 @@ function resolverBackendUrl() {
 
 const BACKEND_URL = resolverBackendUrl();
 
+// Requisição autenticada à API (token AAD no header). Moderação de usuários
+// é feita server-side com Admin SDK — o client não escreve mais em usuarios_rh.
+async function requisicaoApiJson(path, options = {}) {
+  const token = localStorage.getItem('rh_auth_token') || '';
+  const resposta = await fetch(`${BACKEND_URL}${path}`, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    },
+  });
+  if (!resposta.ok) {
+    throw new Error(String(resposta.status));
+  }
+  return resposta.json();
+}
+
 let usuariosStatusTimer = null;
 
 function registrarEventoBackend(acao, detalhes = {}) {
@@ -149,12 +166,10 @@ async function carregarPendentes() {
     totalPendentes.textContent = '0';
   }
   try {
-    // Busca usuários com status 'pendente' no Firestore
-    const snapshot = await obterFirestore()
-      .collection('usuarios_rh')
-      .where('status', '==', 'pendente')
-      .get();
-    const pendentes = snapshot.docs.map((registro) => ({ id: registro.id, ...(registro.data() || {}) }));
+    // Busca usuários pendentes via API (Admin SDK) — leitura direta do
+    // Firestore está bloqueada por regra para não expor a base de usuários.
+    const lista = await requisicaoApiJson('/api/usuarios/pendentes');
+    const pendentes = Array.isArray(lista) ? lista : [];
 
     if (totalPendentes) {
       totalPendentes.textContent = String(pendentes.length);
@@ -183,11 +198,10 @@ async function aprovarUsuario(userId, botao) {
     const select = card && card.querySelector('.usuario-cargo-select');
     const role = select ? String(select.value || 'colaborador') : 'colaborador';
 
-    await obterFirestore().collection('usuarios_rh').doc(String(userId)).update({
-      status: 'aprovado',
-      aprovado: true,
-      role,
-      atualizado_em: new Date().toISOString(),
+    await requisicaoApiJson(`/api/usuarios/aprovar/${encodeURIComponent(String(userId))}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role }),
     });
     registrarEventoBackend('usuario_aprovado', { usuarioIdAprovado: userId, role });
     if (card) {
@@ -296,12 +310,11 @@ function criarCardAprovado(usuario) {
 async function carregarAprovados() {
   if (!usuariosAprovados) return;
   try {
-    const snapshot = await obterFirestore()
-      .collection('usuarios_rh')
-      .where('status', '==', 'aprovado')
-      .get();
-
-    const aprovados = snapshot.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
+    const lista = await requisicaoApiJson('/api/usuarios');
+    const aprovados = (Array.isArray(lista) ? lista : []).filter((u) => {
+      const st = String(u.status || '').toLowerCase();
+      return u.aprovado === true || st === 'aprovado';
+    });
 
     if (!aprovados.length) {
       usuariosAprovados.innerHTML = '<div class="status-vazio">Nenhum usuário aprovado encontrado.</div>';
@@ -330,9 +343,10 @@ async function salvarCargo(userId, novoRole, botao) {
   botao.textContent = 'Salvando...';
 
   try {
-    await obterFirestore().collection('usuarios_rh').doc(String(userId)).update({
-      role: novoRole,
-      atualizado_em: new Date().toISOString(),
+    await requisicaoApiJson(`/api/usuarios/cargo/${encodeURIComponent(String(userId))}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: novoRole }),
     });
 
     const badge = botao.closest('.usuario-item')?.querySelector('[data-role]');

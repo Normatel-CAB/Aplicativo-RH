@@ -1,1279 +1,423 @@
-const form = document.getElementById('rh-form');
-const tipoAtestado = document.getElementById('tipoAtestado');
-const horasWrapper = document.getElementById('horasComparecimentoWrapper');
-const horasInput = document.getElementById('horasComparecimento');
-const diasWrapper = document.getElementById('diasWrapper');
-const grauParentescoWrapper = document.getElementById('grauParentescoWrapper');
-const grauParentesco = document.getElementById('grauParentesco');
-const dataInicio = document.getElementById('dataInicio');
-const dataFim = document.getElementById('dataFim');
-const dias = document.getElementById('dias');
-const arquivos = document.getElementById('arquivos');
-const projetoSelect = document.getElementById('projeto');
-const mensagem = document.getElementById('mensagem');
-const uploadProgressWrapper = document.getElementById('uploadProgressWrapper');
-const uploadProgressBar = document.getElementById('uploadProgressBar');
-const uploadProgressText = document.getElementById('uploadProgressText');
-const botaoEnviar = form.querySelector('button[type="submit"]');
-const rhAccessBtn = document.getElementById('rhAccessBtn');
-const gateProjetoSelect = document.getElementById('gateProjeto');
-const gateProjetoFiltro = document.getElementById('gateProjetoFiltro');
-const gateProjetoFiltroInfo = document.getElementById('gateProjetoFiltroInfo');
-const gateProjetoCards = Array.from(document.querySelectorAll('.gate-projeto-card'));
-const gateContinuarBtn = document.getElementById('gateContinuarBtn');
-const projectGateCard = document.getElementById('projectGateCard');
-const projectGateInfo = document.getElementById('projectGateInfo');
-let mensagemStatusTimer = null;
-let gateProjetoInicializado = false;
-let projetoSelecionadoNoGate = '';
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-
-
-
-const MS_POR_DIA = 24 * 60 * 60 * 1000;
-const MAX_LADO_IMAGEM_PDF = 1600;
-const QUALIDADE_JPEG_PDF = 0.82;
-const PROJETO_PRESELECIONADO_KEY = 'rh_projeto_preselecionado';
-const GATE_FILTRO_BUSCA_KEY = 'rh_gate_filtro_busca';
-const FORMULARIO_PAGE_PATH = 'formulario.html';
-
-function normalizarProjeto(valor) {
-  return String(valor || '').trim();
+function $(selector) {
+  return document.querySelector(selector);
 }
 
-function normalizarTextoBusca(valor) {
-  return String(valor || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
+function setStatus(message, type = 'info') {
+  const status = $('#mensagem');
+  if (!status) return;
+  status.textContent = message;
+  status.className = `status-message status-message--${type}`;
 }
 
-function obterValorParamUrl(nomeParam) {
-  try {
-    const url = new URL(window.location.href);
-    return String(url.searchParams.get(nomeParam) || '').trim();
-  } catch {
-    return '';
+function setLoading(isLoading) {
+  const submitBtn = $('#rh-form button[type="submit"]');
+  if (submitBtn) submitBtn.disabled = isLoading;
+  const progressWrapper = $('#uploadProgressWrapper');
+  if (progressWrapper) {
+    progressWrapper.classList.toggle('hidden', !isLoading);
   }
 }
 
-function atualizarParamUrlSemRecarregar(nomeParam, valorParam) {
-  try {
-    const url = new URL(window.location.href);
-    const valor = String(valorParam || '').trim();
-    if (valor) {
-      url.searchParams.set(nomeParam, valor);
-    } else {
-      url.searchParams.delete(nomeParam);
-    }
-
-    const novaUrl = `${url.pathname}${url.search}${url.hash}`;
-    window.history.replaceState({}, '', novaUrl);
-  } catch {
-    // Ignora falhas de parse de URL para nao afetar fluxo principal.
-  }
+function showModal() {
+  const modal = $('#modalAvisoAtestado');
+  if (modal) modal.classList.add('modal-overlay--visible');
 }
 
-function obterFiltroBuscaInicialGate() {
-  const buscaUrl = obterValorParamUrl('busca');
-  const buscaLocal = String(localStorage.getItem(GATE_FILTRO_BUSCA_KEY) || '').trim();
-  return buscaUrl || buscaLocal;
+function hideModal() {
+  const modal = $('#modalAvisoAtestado');
+  if (modal) modal.classList.remove('modal-overlay--visible');
 }
 
-function atualizarEstadoNavegacaoGate(projeto = '', busca = '') {
-  atualizarParamUrlSemRecarregar('projeto', normalizarProjeto(projeto));
-  atualizarParamUrlSemRecarregar('busca', String(busca || '').trim());
+function parseDateBr(value) {
+  const parts = String(value).trim().split('/');
+  if (parts.length !== 3) return null;
+  const [day, month, year] = parts.map((part) => Number(part));
+  if (!Number.isInteger(day) || !Number.isInteger(month) || !Number.isInteger(year)) return null;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCDate() !== day || date.getUTCMonth() !== month - 1 || date.getUTCFullYear() !== year) return null;
+  return date;
 }
 
-function atualizarMensagemGate(texto, tipo = 'info') {
-  if (!projectGateInfo) return;
+function toISOStringDate(value) {
+  const date = parseDateBr(value);
+  return date ? date.toISOString() : null;
+}
 
-  projectGateInfo.textContent = texto;
-  projectGateInfo.classList.remove('status-message--info', 'status-message--success', 'status-message--error');
-  if (tipo === 'error') {
-    projectGateInfo.classList.add('status-message--error');
-  } else if (tipo === 'success') {
-    projectGateInfo.classList.add('status-message--success');
+function normalizeProject(value) {
+  return String(value || '').trim();
+}
+
+function updateSpecialFields() {
+  const tipoSelect = $('#tipoAtestado');
+  const grauGroup = $('#grauParentescoWrapper');
+  const trabalhoHoras = $('#horasComparecimentoWrapper');
+  const tipo = tipoSelect?.value;
+  if (tipo === 'Atestado de Óbito') {
+    grauGroup?.classList.remove('hidden');
   } else {
-    projectGateInfo.classList.add('status-message--info');
+    grauGroup?.classList.add('hidden');
   }
-}
-
-function bloquearCampoProjeto(valorProjeto) {
-  const valor = normalizarProjeto(valorProjeto);
-  if (!projetoSelect || !valor) return;
-
-  projetoSelect.value = valor;
-  projetoSelect.disabled = true;
-  projetoSelect.classList.add('is-locked');
-  projetoSelect.required = false;
-}
-
-function obterProjetoSelecionadoInicial() {
-  let projetoDaUrl = '';
-  try {
-    const url = new URL(window.location.href);
-    projetoDaUrl = normalizarProjeto(url.searchParams.get('projeto'));
-  } catch {
-    projetoDaUrl = '';
-  }
-
-  const projetoLocal = normalizarProjeto(localStorage.getItem(PROJETO_PRESELECIONADO_KEY));
-  return projetoDaUrl || projetoLocal;
-}
-
-function redirecionarParaFormularioComProjeto(valorProjeto) {
-  const valor = normalizarProjeto(valorProjeto);
-  if (!valor) {
-    atualizarMensagemGate('Selecione um projeto para continuar.', 'error');
-    return;
-  }
-
-  localStorage.setItem(PROJETO_PRESELECIONADO_KEY, valor);
-  const params = new URLSearchParams();
-  params.set('projeto', valor);
-  params.set('origem', 'index.html');
-
-  const buscaAtual = String(gateProjetoFiltro?.value || '').trim();
-  if (buscaAtual) {
-    params.set('busca', buscaAtual);
-    localStorage.setItem(GATE_FILTRO_BUSCA_KEY, buscaAtual);
-  }
-
-  const destino = `${FORMULARIO_PAGE_PATH}?${params.toString()}`;
-  window.location.href = destino;
-}
-
-function liberarFormularioComProjeto(valorProjeto) {
-  const valor = normalizarProjeto(valorProjeto);
-  if (!valor) {
-    atualizarMensagemGate('Selecione um projeto valido para continuar.', 'error');
-    return;
-  }
-
-  bloquearCampoProjeto(valor);
-  localStorage.setItem(PROJETO_PRESELECIONADO_KEY, valor);
-
-  gateProjetoCards.forEach((card) => {
-    const ativo = normalizarProjeto(card.dataset.projeto) === valor;
-    card.classList.toggle('active', ativo);
-  });
-
-  form.classList.remove('hidden');
-  if (projectGateCard) {
-    projectGateCard.classList.add('hidden');
-  }
-
-  definirMensagemStatus(`Projeto selecionado: ${valor}. Campo projeto bloqueado para envio.`, 'success');
-  if (typeof abrirModalAvisoAtestado === 'function') {
-    abrirModalAvisoAtestado();
-  }
-}
-
-function selecionarProjetoDoGate(valorProjeto) {
-  const valor = normalizarProjeto(valorProjeto);
-  if (!valor) {
-    atualizarMensagemGate('Selecione um projeto para continuar.', 'error');
-    return;
-  }
-
-  redirecionarParaFormularioComProjeto(valor);
-}
-
-function atualizarInfoFiltroProjetos(totalVisiveis, totalProjetos, termo) {
-  if (!gateProjetoFiltroInfo) return;
-
-  const termoNormalizado = normalizarProjeto(termo);
-  if (!termoNormalizado) {
-    gateProjetoFiltroInfo.textContent = 'Mostrando todos os projetos.';
-    return;
-  }
-
-  gateProjetoFiltroInfo.textContent = `${totalVisiveis} de ${totalProjetos} projeto(s) encontrado(s) para "${termoNormalizado}".`;
-}
-
-function aplicarFiltroProjetosGate(termoBusca = '') {
-  if (!gateProjetoCards.length) return;
-
-  const termo = normalizarTextoBusca(termoBusca);
-  const termos = termo ? termo.split(/\s+/).filter(Boolean) : [];
-  const termoOriginal = String(termoBusca || '').trim();
-  let visiveis = 0;
-
-  gateProjetoCards.forEach((card) => {
-    const projeto = normalizarTextoBusca(card.dataset.projeto);
-    const deveMostrar = !termos.length || termos.every((parte) => projeto.includes(parte));
-    card.classList.toggle('hidden', !deveMostrar);
-    card.setAttribute('aria-hidden', deveMostrar ? 'false' : 'true');
-    if (deveMostrar) visiveis += 1;
-  });
-
-  atualizarInfoFiltroProjetos(visiveis, gateProjetoCards.length, termoBusca);
-  if (termoOriginal) {
-    localStorage.setItem(GATE_FILTRO_BUSCA_KEY, termoOriginal);
+  if (tipo === 'Odontológico') {
+    trabalhoHoras?.classList.remove('hidden');
   } else {
-    localStorage.removeItem(GATE_FILTRO_BUSCA_KEY);
+    trabalhoHoras?.classList.add('hidden');
   }
-
-  atualizarEstadoNavegacaoGate(projetoSelecionadoNoGate, termoOriginal);
 }
 
-function atualizarLinkVoltarFormulario() {
-  const backLink = document.querySelector('.form-back-btn');
-  if (!backLink) return;
-
-  const params = new URLSearchParams();
-  const projeto = normalizarProjeto(projetoSelecionadoNoGate || projetoSelect?.value || localStorage.getItem(PROJETO_PRESELECIONADO_KEY));
-  const busca = String(obterValorParamUrl('busca') || localStorage.getItem(GATE_FILTRO_BUSCA_KEY) || '').trim();
-
-  if (projeto) {
-    params.set('projeto', projeto);
-  }
-  if (busca) {
-    params.set('busca', busca);
-  }
-
-  backLink.href = `index.html${params.toString() ? `?${params.toString()}` : ''}`;
-}
-
-function inicializarGateProjeto() {
-  if (gateProjetoInicializado || !projetoSelect || !form) {
-    return;
-  }
-  gateProjetoInicializado = true;
-
-  const gateDisponivel = Boolean(projectGateCard || gateProjetoSelect || gateProjetoCards.length);
-  const projetoInicial = obterProjetoSelecionadoInicial();
-
-  if (!gateDisponivel) {
-    if (!projetoInicial) {
-      window.location.href = 'index.html';
-      return;
-    }
-
-    // Se a opção não existe (projeto criado dinamicamente pelo RH), adiciona ela ao select
-    if (!Array.from(projetoSelect.options).some((opt) => opt.value === projetoInicial)) {
-      const opt = document.createElement('option');
-      opt.value = projetoInicial;
-      opt.textContent = projetoInicial;
-      projetoSelect.appendChild(opt);
-    }
-
-    liberarFormularioComProjeto(projetoInicial);
-    return;
-  }
-
-  if (projectGateCard) {
-    projectGateCard.classList.remove('hidden');
-  }
-  form.classList.add('hidden');
-
-  const projetoSalvo = projetoInicial;
-  if (projetoSalvo && gateProjetoSelect) {
-    const projetoValidoNoSelect = Array.from(gateProjetoSelect.options).some((opt) => opt.value === projetoSalvo);
-    if (projetoValidoNoSelect) {
-      gateProjetoSelect.value = projetoSalvo;
-      projetoSelecionadoNoGate = projetoSalvo;
-      atualizarEstadoNavegacaoGate(projetoSelecionadoNoGate, obterFiltroBuscaInicialGate());
+function updateDaysFromDates() {
+  const dataInicio = $('#dataInicio');
+  const dataFim = $('#dataFim');
+  const dias = $('#dias');
+  if (!dataInicio || !dataFim || !dias) return;
+  const inicio = parseDateBr(dataInicio.value);
+  const fim = parseDateBr(dataFim.value);
+  if (inicio && fim) {
+    const diff = Math.floor((fim - inicio) / MS_PER_DAY) + 1;
+    if (diff > 0) {
+      dias.value = String(diff);
     }
   }
-
-  if (projetoSelecionadoNoGate) {
-    gateProjetoCards.forEach((card) => {
-      const ativo = normalizarProjeto(card.dataset.projeto) === projetoSelecionadoNoGate;
-      card.classList.toggle('active', ativo);
-    });
-  }
-
-  if (gateContinuarBtn) {
-    const projetoInicial = normalizarProjeto(projetoSelecionadoNoGate || gateProjetoSelect?.value);
-    gateContinuarBtn.disabled = !projetoInicial;
-    if (projetoInicial) {
-      gateContinuarBtn.dataset.projetoSelecionado = projetoInicial;
-    }
-    gateContinuarBtn.addEventListener('click', () => {
-      const projeto = normalizarProjeto(gateContinuarBtn.dataset.projetoSelecionado || projetoSelecionadoNoGate || gateProjetoSelect?.value);
-      redirecionarParaFormularioComProjeto(projeto);
-    });
-  }
-
-  atualizarMensagemGate('Selecione o projeto para liberar o formulario.', 'info');
-
-  if (gateProjetoFiltro) {
-    gateProjetoFiltro.value = obterFiltroBuscaInicialGate();
-    gateProjetoFiltro.addEventListener('input', () => {
-      aplicarFiltroProjetosGate(gateProjetoFiltro.value);
-    });
-    aplicarFiltroProjetosGate(gateProjetoFiltro.value);
-  }
-
-  gateProjetoCards.forEach((card) => {
-    card.addEventListener('click', () => {
-      selecionarProjetoDoGate(card.dataset.projeto);
-    });
-
-    card.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        selecionarProjetoDoGate(card.dataset.projeto);
-      }
-    });
-  });
-
-  if (gateProjetoSelect) {
-    gateProjetoSelect.addEventListener('change', () => {
-      selecionarProjetoDoGate(gateProjetoSelect.value);
-    });
-  }
-
-  atualizarLinkVoltarFormulario();
-
-  document.addEventListener('click', (event) => {
-    const card = event.target.closest('.gate-projeto-card');
-    if (!card) return;
-    selecionarProjetoDoGate(card.dataset.projeto);
-  });
 }
 
-// Função para registrar eventos no Firestore (opcional)
-async function registrarEventoBackend(acao, detalhes = {}) {
-  try {
-    await window.db.collection('eventos_frontend').add({
-      acao,
-      pagina: 'index.html',
-      email: localStorage.getItem('rh_user_email') || '',
-      usuarioId: localStorage.getItem('rh_user_id') || '',
-      detalhes,
-      criado_em: new Date().toISOString()
-    });
-  } catch {}
-}
-
-function toUTCDate(dateString) {
-  const valor = String(dateString || '').trim();
-  if (!valor) return new Date(NaN);
-
-  let ano;
-  let mes;
-  let dia;
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
-    [ano, mes, dia] = valor.split('-').map(Number);
-  } else if (/^\d{2}-\d{2}-\d{4}$/.test(valor)) {
-    [dia, mes, ano] = valor.split('-').map(Number);
-  } else {
-    return new Date(NaN);
+function validateDates() {
+  const dataInicio = $('#dataInicio');
+  const dataFim = $('#dataFim');
+  if (!dataInicio || !dataFim) return false;
+  const start = parseDateBr(dataInicio.value);
+  const end = parseDateBr(dataFim.value);
+  if (!start) {
+    setStatus('Data de início inválida. Use DD/MM/AAAA.', 'error');
+    return false;
   }
-
-  const data = new Date(Date.UTC(ano, mes - 1, dia));
-  if (
-    data.getUTCFullYear() !== ano ||
-    data.getUTCMonth() !== mes - 1 ||
-    data.getUTCDate() !== dia
-  ) {
-    return new Date(NaN);
+  if (!end) {
+    setStatus('Data de fim inválida. Use DD/MM/AAAA.', 'error');
+    return false;
   }
-
-  return data;
-}
-
-function toInputDate(dateObj) {
-  const ano = dateObj.getUTCFullYear();
-  const mes = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
-  const dia = String(dateObj.getUTCDate()).padStart(2, '0');
-  return `${dia}/${mes}/${ano}`;
-}
-
-function obterDataHojeLocalISO() {
+  if (end < start) {
+    setStatus('A data de fim não pode ser anterior à data de início.', 'error');
+    return false;
+  }
   const agora = new Date();
-  const ano = agora.getFullYear();
-  const mes = String(agora.getMonth() + 1).padStart(2, '0');
-  const dia = String(agora.getDate()).padStart(2, '0');
-  return `${ano}-${mes}-${dia}`;
+  if (start > agora || end > agora) {
+    setStatus('As datas não podem ser futuras.', 'error');
+    return false;
+  }
+  return true;
 }
 
-function isoParaDisplay(isoDate) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(isoDate || ''))) {
-    return '';
-  }
-  const [ano, mes, dia] = String(isoDate).split('-');
-  return `${dia}/${mes}/${ano}`;
-}
-
-function displayParaISO(displayDate) {
-  const valor = String(displayDate || '').trim().replace(/\//g, '-');
-  if (!/^\d{2}-\d{2}-\d{4}$/.test(valor)) {
-    return '';
-  }
-  const [dia, mes, ano] = valor.split('-').map(Number);
-  const data = new Date(Date.UTC(ano, mes - 1, dia));
-  if (
-    data.getUTCFullYear() !== ano ||
-    data.getUTCMonth() !== mes - 1 ||
-    data.getUTCDate() !== dia
-  ) {
-    return '';
-  }
-  return `${String(ano).padStart(4, '0')}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
-}
-
-function normalizarDigitacaoData(input) {
-  if (!input) return;
-  const apenasDigitos = String(input.value || '').replace(/\D/g, '').slice(0, 8);
-  let formatado = apenasDigitos;
-  if (apenasDigitos.length > 2) {
-    formatado = `${apenasDigitos.slice(0, 2)}/${apenasDigitos.slice(2)}`;
-  }
-  if (apenasDigitos.length > 4) {
-    formatado = `${apenasDigitos.slice(0, 2)}/${apenasDigitos.slice(2, 4)}/${apenasDigitos.slice(4)}`;
-  }
-  input.value = formatado;
-}
-
-function validarDatasNaoFuturas() {
-  const hojeISO = obterDataHojeLocalISO();
-  const hojeDisplay = isoParaDisplay(hojeISO);
-  const isoInicio = displayParaISO(dataInicio.value);
-  const isoFim = displayParaISO(dataFim.value);
-
-  const hoje = toUTCDate(hojeISO);
-
-  if (!dataInicio.value) {
-    dataInicio.setCustomValidity('');
-  } else if (!isoInicio) {
-    dataInicio.setCustomValidity('Use o formato DD-MM-AAAA com data válida.');
-  } else {
-    const inicio = toUTCDate(isoInicio);
-    if (inicio > hoje) {
-      dataInicio.setCustomValidity(`A data de início não pode ser futura. Máximo: ${hojeDisplay}.`);
-    } else {
-      dataInicio.setCustomValidity('');
-    }
+async function uploadFiles(files, envioId) {
+  if (!window.storage || typeof window.storage.ref !== 'function') {
+    throw new Error('Firebase Storage não disponível nesta página. O upload não é possível.');
   }
 
-  if (!dataFim.value) {
-    dataFim.setCustomValidity('');
-  } else if (!isoFim) {
-    dataFim.setCustomValidity('Use o formato DD-MM-AAAA com data válida.');
-  } else {
-    const fim = toUTCDate(isoFim);
-    if (fim > hoje) {
-      dataFim.setCustomValidity(`A data de fim não pode ser futura. Máximo: ${hojeDisplay}.`);
-    } else if (isoInicio && fim < toUTCDate(isoInicio)) {
-      dataFim.setCustomValidity('A data de fim deve ser igual ou maior que a data de início.');
-    } else {
-      dataFim.setCustomValidity('');
-    }
-  }
-}
+  const totalBytes = Array.from(files).reduce((sum, file) => sum + file.size, 0);
+  let progressBytes = 0;
 
-function calcularDiasPorIntervalo() {
-  const isoInicio = displayParaISO(dataInicio.value);
-  const isoFim = displayParaISO(dataFim.value);
-  if (!isoInicio || !isoFim) {
-    return;
-  }
-
-  const inicio = toUTCDate(isoInicio);
-  const fim = toUTCDate(isoFim);
-  const diferenca = Math.floor((fim - inicio) / MS_POR_DIA) + 1;
-
-  if (diferenca >= 1) {
-    dias.value = String(diferenca);
-    dataFim.setCustomValidity('');
-  } else {
-    dataFim.setCustomValidity('A data de fim deve ser igual ou maior que a data de início.');
-  }
-}
-
-function calcularFimPorDias() {
-  if (tipoAtestado.value === 'Declaração') {
-    const isoInicioDeclaracao = displayParaISO(dataInicio.value);
-    if (isoInicioDeclaracao) {
-      dataFim.value = toInputDate(toUTCDate(isoInicioDeclaracao));
-      dias.value = '1';
-      dataFim.setCustomValidity('');
-    }
-    return;
-  }
-
-  if (tipoAtestado.value === 'Atestado de Óbito') {
-    const isoInicioObito = displayParaISO(dataInicio.value);
-    if (isoInicioObito) {
-      dataFim.value = toInputDate(toUTCDate(isoInicioObito));
-      dataFim.setCustomValidity('');
-    }
-    return;
-  }
-
-  const isoInicio = displayParaISO(dataInicio.value);
-  if (!isoInicio || !dias.value) {
-    return;
-  }
-
-  const totalDias = Number(dias.value);
-  if (!Number.isInteger(totalDias) || totalDias < 1) {
-    return;
-  }
-
-  const inicio = toUTCDate(isoInicio);
-  const fim = new Date(inicio.getTime() + (totalDias - 1) * MS_POR_DIA);
-  dataFim.value = toInputDate(fim);
-  dataFim.setCustomValidity('');
-}
-
-function atualizarCampoHoras() {
-  const isDeclaracao = tipoAtestado.value === 'Declaração';
-  const isObito = tipoAtestado.value === 'Atestado de Óbito';
-  horasWrapper.classList.toggle('hidden', !isDeclaracao);
-  horasInput.required = isDeclaracao;
-
-  if (grauParentescoWrapper) {
-    grauParentescoWrapper.classList.toggle('hidden', !isObito);
-  }
-  if (grauParentesco) {
-    grauParentesco.required = isObito;
-    if (!isObito) grauParentesco.value = '';
-  }
-
-  if (diasWrapper) {
-    diasWrapper.classList.toggle('hidden', isDeclaracao || isObito);
-  }
-  dias.required = !isDeclaracao && !isObito;
-
-  if (isObito) {
-    horasInput.value = '';
-    dias.value = '';
-    dias.setCustomValidity('');
-    const isoInicioObito = displayParaISO(dataInicio.value);
-    if (isoInicioObito) {
-      dataFim.value = toInputDate(toUTCDate(isoInicioObito));
-      dataFim.setCustomValidity('');
-    }
-  } else if (!isDeclaracao) {
-    horasInput.value = '';
-  } else {
-    dias.value = '1';
-    calcularFimPorDias();
-  }
-}
-
-function nomePdf(nomeOriginal) {
-  const semExtensao = nomeOriginal.replace(/\.[^/.]+$/, '');
-  return `${semExtensao}.pdf`;
-}
-
-function formatarDataCurtaParaNome(dataISO) {
-  if (!dataISO || typeof dataISO !== 'string') {
-    return '00.00.0000';
-  }
-
-  const iso = /^\d{2}[-/]\d{2}[-/]\d{4}$/.test(dataISO) ? displayParaISO(dataISO) : dataISO;
-  const [ano, mes, dia] = String(iso || '').split('-');
-  return `${dia || '00'}.${mes || '00'}.${ano || '0000'}`;
-}
-
-function normalizarNomePessoaParaArquivo(nomePessoa) {
-  return String(nomePessoa || '')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toUpperCase();
-}
-
-function sanitizarNomeArquivo(nomeArquivo) {
-  return nomeArquivo
-    .replace(/[\\/:*?"<>|]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function montarNomePdfPadrao() {
-  const nomePessoa = normalizarNomePessoaParaArquivo(document.getElementById('nome').value);
-  const dataInicioCurta = formatarDataCurtaParaNome(dataInicio.value);
-
-  if (tipoAtestado.value === 'Declaração') {
-    return sanitizarNomeArquivo(`DECLARAÇÃO MÉDICA - ${dataInicioCurta} - ${nomePessoa}.pdf`);
-  }
-
-  if (tipoAtestado.value === 'Atestado de Óbito') {
-    const grau = normalizarNomePessoaParaArquivo(grauParentesco?.value);
-    return sanitizarNomeArquivo(`ATESTADO DE ÓBITO - ${dataInicioCurta}${grau ? ` (${grau})` : ''} - ${nomePessoa}.pdf`);
-  }
-
-  const totalDias = Number(dias.value) || 0;
-  const labelDias = totalDias === 1 ? 'DIA' : 'DIAS';
-  return sanitizarNomeArquivo(`ATESTADO MÉDICO - ${dataInicioCurta} (${totalDias} ${labelDias}) - ${nomePessoa}.pdf`);
-}
-
-function definirEstadoEnvio(carregando, textoBotao = 'Enviar') {
-  botaoEnviar.disabled = carregando;
-  botaoEnviar.textContent = carregando ? 'Enviando...' : textoBotao;
-}
-
-function atualizarProgressoUpload(percentual, texto = '') {
-  if (!uploadProgressWrapper || !uploadProgressBar || !uploadProgressText) {
-    return;
-  }
-
-  const valor = Math.max(0, Math.min(100, Math.round(percentual)));
-  uploadProgressWrapper.classList.remove('hidden');
-  uploadProgressBar.value = valor;
-  uploadProgressText.textContent = texto || `${valor}%`;
-}
-
-function ocultarProgressoUpload() {
-  if (!uploadProgressWrapper || !uploadProgressBar || !uploadProgressText) {
-    return;
-  }
-
-  uploadProgressBar.value = 0;
-  uploadProgressText.textContent = '0%';
-  uploadProgressWrapper.classList.add('hidden');
-}
-
-
-function uploadComProgresso(storageRef, blob, bytesTransferidosPorArquivo, indiceArquivo, totalBytes, nomeArquivoDownload = 'arquivo.pdf') {
-  return new Promise((resolve, reject) => {
-    const nomeSeguroHeader = String(nomeArquivoDownload || 'arquivo.pdf')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-zA-Z0-9._ -]/g, '_');
-
-    // Gera um token de download secreto no próprio upload. A URL final só
-    // funciona com este token, dispensando permissão de leitura nas regras
-    // (allow read: if false) e evitando bucket público / enumeração.
-    const downloadToken = (self.crypto?.randomUUID?.() ||
-      `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`);
-
-    const uploadTask = storageRef.put(blob, {
-      contentType: 'application/pdf',
-      contentDisposition: `attachment; filename="${nomeSeguroHeader}"`,
-      customMetadata: {},
-      firebaseStorageDownloadTokens: downloadToken
+  const uploads = Array.from(files).map((file, index) => {
+    const nomeArquivo = `${Date.now()}-${index + 1}-${file.name}`;
+    const caminho = `envios/${envioId}/${nomeArquivo}`;
+    const storageRef = window.storage.ref(caminho);
+    return new Promise((resolve, reject) => {
+      const task = storageRef.put(file);
+      task.on('state_changed', (snapshot) => {
+        if (!snapshot || !snapshot.totalBytes) return;
+        progressBytes += snapshot.bytesTransferred - (task.lastBytesTransferred || 0);
+        task.lastBytesTransferred = snapshot.bytesTransferred;
+        const progresso = Math.min(100, Math.round((progressBytes / totalBytes) * 100));
+        updateProgress(progresso, `${progresso}%`);
+      }, reject, async () => {
+        try {
+          const url = await task.snapshot.ref.getDownloadURL();
+          resolve({ nome: file.name, url });
+        } catch (err) {
+          reject(err);
+        }
+      });
     });
+  });
 
-    uploadTask.on('state_changed', (snapshot) => {
-      bytesTransferidosPorArquivo[indiceArquivo] = snapshot.bytesTransferred;
-      const totalTransferido = bytesTransferidosPorArquivo.reduce((acc, atual) => acc + atual, 0);
-      const percentual = totalBytes > 0 ? (totalTransferido / totalBytes) * 100 : 0;
-      atualizarProgressoUpload(percentual, `${Math.round(percentual)}%`);
-    }, reject, () => {
-      try {
-        const ref = uploadTask.snapshot.ref;
-        const bucket = ref.bucket;
-        const caminhoCodificado = encodeURIComponent(ref.fullPath);
-        const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${caminhoCodificado}?alt=media&token=${downloadToken}`;
-        resolve(url);
-      } catch (error) {
-        reject(error);
+  return Promise.all(uploads);
+}
+
+function updateProgress(value, text) {
+  const progressBar = $('#uploadProgressBar');
+  const progressText = $('#uploadProgressText');
+  const progressLabel = $('#uploadProgressLabel');
+  if (progressBar) progressBar.value = value;
+  if (progressText) progressText.textContent = text;
+  if (progressLabel) progressLabel.textContent = `Enviando: ${text}`;
+}
+
+function resetProgress() {
+  updateProgress(0, '0%');
+  const progressWrapper = $('#uploadProgressWrapper');
+  if (progressWrapper) progressWrapper.classList.add('hidden');
+}
+
+function safeFetchJson(url, options) {
+  return fetch(url, options).then(async (response) => {
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      const message = payload?.error || response.statusText || 'Erro na requisição';
+      throw new Error(message);
+    }
+    return response.json().catch(() => ({}));
+  });
+}
+
+async function registrarEventoBackend(acao, detalhes = {}) {
+  const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  const backendBase = isLocal ? 'http://localhost:3001' : window.location.origin;
+  try {
+    await safeFetchJson(`${backendBase}/api/email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ acao, detalhes, evento: 'frontend' })
+    });
+  } catch (err) {
+    console.warn('Falha ao registrar evento no backend:', err.message);
+  }
+}
+
+function getSuccessRedirectUrl() {
+  return '../sucesso.html';
+}
+
+function openFilePreview() {
+  const preview = $('#filePreviewArea');
+  const files = $('#arquivos')?.files;
+  if (!preview || !files || !files.length) {
+    preview?.classList.add('hidden');
+    preview.innerHTML = '';
+    return;
+  }
+  preview.classList.remove('hidden');
+  preview.innerHTML = Array.from(files).map((file) => `<div class="file-preview-item">${file.name}</div>`).join('');
+}
+
+function initAttachmentHandlers() {
+  const arquivosInput = $('#arquivos');
+  if (!arquivosInput) return;
+  arquivosInput.addEventListener('change', openFilePreview);
+}
+
+function initModal() {
+  const checkbox = $('#modalAvisoConfirmarCheck');
+  const continueButton = $('#modalAvisoContinuar');
+  const cancelButton = $('#modalAvisoCancelar');
+  let avisoAtestadoConfirmado = false;
+
+  if (checkbox) {
+    checkbox.addEventListener('change', () => {
+      avisoAtestadoConfirmado = checkbox.checked;
+      if (continueButton) continueButton.disabled = !avisoAtestadoConfirmado;
+    });
+  }
+
+  if (continueButton) {
+    continueButton.addEventListener('click', () => {
+      if (avisoAtestadoConfirmado) {
+        hideModal();
       }
     });
-  });
-}
-
-function definirMensagemStatus(texto, tipo = 'info') {
-  if (!mensagem) {
-    return;
   }
 
-  if (mensagemStatusTimer) {
-    clearTimeout(mensagemStatusTimer);
-    mensagemStatusTimer = null;
-  }
-
-  mensagem.textContent = texto;
-  mensagem.style.color = '';
-  mensagem.classList.remove('status-message--info', 'status-message--success', 'status-message--error');
-
-  if (tipo === 'error') {
-    mensagem.classList.add('status-message--error');
-  } else if (tipo === 'success') {
-    mensagem.classList.add('status-message--success');
-  } else {
-    mensagem.classList.add('status-message--info');
-  }
-
-  if (tipo === 'success' || tipo === 'info') {
-    mensagemStatusTimer = setTimeout(() => {
-      mensagem.textContent = '';
-      mensagem.classList.remove('status-message--info', 'status-message--success', 'status-message--error');
-      mensagemStatusTimer = null;
-    }, 4000);
-  }
-}
-
-function blobParaArquivoPdf(blob, nomeArquivo) {
-  return new File([blob], nomeArquivo, { type: 'application/pdf' });
-}
-
-function blobParaBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('Falha ao converter arquivo para base64.'));
-    reader.readAsDataURL(blob);
-  });
-}
-
-async function converterImagemParaPdf(arquivo) {
-  const { jsPDF } = window.jspdf;
-  const dataUrl = await new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('Falha ao ler imagem.'));
-    reader.readAsDataURL(arquivo);
-  });
-
-  const imagem = await new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('Imagem inválida para conversão.'));
-    img.src = dataUrl;
-  });
-
-  const escalaReducao = Math.min(
-    1,
-    MAX_LADO_IMAGEM_PDF / Math.max(imagem.width, imagem.height)
-  );
-  const larguraProcessada = Math.max(1, Math.round(imagem.width * escalaReducao));
-  const alturaProcessada = Math.max(1, Math.round(imagem.height * escalaReducao));
-
-  const canvas = document.createElement('canvas');
-  canvas.width = larguraProcessada;
-  canvas.height = alturaProcessada;
-  const contexto = canvas.getContext('2d');
-  if (!contexto) {
-    throw new Error('Falha ao processar imagem para PDF.');
-  }
-
-  contexto.drawImage(imagem, 0, 0, larguraProcessada, alturaProcessada);
-
-  const manterPng = arquivo.type.includes('png');
-  const formatoImagem = manterPng ? 'PNG' : 'JPEG';
-  const dataUrlProcessada = manterPng
-    ? canvas.toDataURL('image/png')
-    : canvas.toDataURL('image/jpeg', QUALIDADE_JPEG_PDF);
-
-  const orientacao = larguraProcessada > alturaProcessada ? 'l' : 'p';
-  const pdf = new jsPDF({ orientation: orientacao, unit: 'pt', format: 'a4' });
-  const larguraPagina = pdf.internal.pageSize.getWidth();
-  const alturaPagina = pdf.internal.pageSize.getHeight();
-
-  const escala = Math.min(larguraPagina / larguraProcessada, alturaPagina / alturaProcessada);
-  const larguraFinal = larguraProcessada * escala;
-  const alturaFinal = alturaProcessada * escala;
-  const x = (larguraPagina - larguraFinal) / 2;
-  const y = (alturaPagina - alturaFinal) / 2;
-
-  pdf.addImage(dataUrlProcessada, formatoImagem, x, y, larguraFinal, alturaFinal);
-  return pdf.output('blob');
-}
-
-async function converterTxtParaPdf(arquivo) {
-  const { jsPDF } = window.jspdf;
-  const texto = await arquivo.text();
-  const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
-  const margem = 40;
-  const largura = pdf.internal.pageSize.getWidth() - margem * 2;
-  const linhas = pdf.splitTextToSize(texto || ' ', largura);
-  let y = 52;
-
-  linhas.forEach((linha) => {
-    if (y > pdf.internal.pageSize.getHeight() - 40) {
-      pdf.addPage();
-      y = 52;
-    }
-    pdf.text(linha, margem, y);
-    y += 18;
-  });
-
-  return pdf.output('blob');
-}
-
-async function converterArquivoParaPdf(arquivo) {
-  if (arquivo.type === 'application/pdf') {
-    return { blob: arquivo, nome: nomePdf(arquivo.name) };
-  }
-
-  if (arquivo.type.startsWith('image/')) {
-    const blob = await converterImagemParaPdf(arquivo);
-    return { blob, nome: nomePdf(arquivo.name) };
-  }
-
-  if (arquivo.type === 'text/plain') {
-    const blob = await converterTxtParaPdf(arquivo);
-    return { blob, nome: nomePdf(arquivo.name) };
-  }
-
-  return null;
-}
-
-function montarFormDataEnvio(arquivosConvertidos) {
-  const formData = new FormData();
-  formData.append('nome', document.getElementById('nome').value.trim());
-  formData.append('funcao', document.getElementById('funcao').value.trim());
-  formData.append('projeto', document.getElementById('projeto').value);
-  formData.append('tipo_atestado', tipoAtestado.value);
-  formData.append('horas_comparecimento', horasInput.value ? String(Number(horasInput.value)) : '');
-  formData.append('data_inicio', dataInicio.value);
-  formData.append('data_fim', dataFim.value);
-  formData.append('dias', String(Number(dias.value)));
-
-  const nomePdfPadrao = montarNomePdfPadrao();
-  arquivosConvertidos.forEach((arquivoConvertido, indice) => {
-    const nomeArquivo = arquivosConvertidos.length > 1
-      ? nomePdfPadrao.replace('.pdf', ` - ANEXO ${indice + 1}.pdf`)
-      : nomePdfPadrao;
-    const arquivoPdf = blobParaArquivoPdf(arquivoConvertido.blob, nomeArquivo);
-    formData.append('arquivos', arquivoPdf, nomeArquivo);
-  });
-  return formData;
-}
-
-tipoAtestado.addEventListener('change', atualizarCampoHoras);
-tipoAtestado.addEventListener('change', salvarRascunho);
-arquivos.addEventListener('change', atualizarPreviewArquivos);
-['nome', 'email', 'funcao'].forEach((id) => {
-  const el = document.getElementById(id);
-  if (el) el.addEventListener('input', salvarRascunho);
-});
-dataInicio.addEventListener('input', () => normalizarDigitacaoData(dataInicio));
-dataInicio.addEventListener('change', () => {
-  validarDatasNaoFuturas();
-  calcularFimPorDias();
-  if (tipoAtestado.value !== 'Declaração') {
-    calcularDiasPorIntervalo();
-  }
-  validarDatasNaoFuturas();
-});
-dias.addEventListener('input', () => {
-  calcularFimPorDias();
-  validarDatasNaoFuturas();
-});
-
-if (rhAccessBtn) {
-  rhAccessBtn.addEventListener('click', () => {
-    localStorage.setItem('rh_redirect_after_login', 'rh-atestados.html');
-    registrarEventoBackend('clicou_botao_rh');
-    window.location.href = 'account-selector.html';
-  });
-}
-
-
-
-// --- Preview de arquivos ---
-let previewObjectUrls = [];
-
-function atualizarPreviewArquivos() {
-  const area = document.getElementById('filePreviewArea');
-  if (!area) return;
-
-  previewObjectUrls.forEach((url) => URL.revokeObjectURL(url));
-  previewObjectUrls = [];
-
-  const lista = Array.from(arquivos.files || []);
-  if (!lista.length) {
-    area.innerHTML = '';
-    area.classList.add('hidden');
-    return;
-  }
-
-  area.innerHTML = '';
-  area.classList.remove('hidden');
-
-  lista.forEach((arquivo) => {
-    const item = document.createElement('div');
-    item.className = 'file-preview-item';
-
-    if (arquivo.type.startsWith('image/')) {
-      const url = URL.createObjectURL(arquivo);
-      previewObjectUrls.push(url);
-      const img = document.createElement('img');
-      img.src = url;
-      img.alt = arquivo.name;
-      img.className = 'file-preview-img';
-      item.appendChild(img);
-    } else {
-      const badge = document.createElement('div');
-      badge.className = 'file-preview-badge';
-      badge.textContent = 'PDF';
-      item.appendChild(badge);
-    }
-
-    const info = document.createElement('div');
-    info.className = 'file-preview-info';
-
-    const nome = document.createElement('span');
-    nome.className = 'file-preview-name';
-    nome.textContent = arquivo.name;
-
-    const tamanho = document.createElement('span');
-    tamanho.className = 'file-preview-size';
-    tamanho.textContent = arquivo.size >= 1048576
-      ? `${(arquivo.size / 1048576).toFixed(1)} MB`
-      : `${Math.round(arquivo.size / 1024)} KB`;
-
-    info.appendChild(nome);
-    info.appendChild(tamanho);
-    item.appendChild(info);
-    area.appendChild(item);
-  });
-}
-
-// --- Rascunho automático (localStorage) ---
-const RASCUNHO_KEY = 'rh_rascunho_v1';
-const CAMPOS_RASCUNHO = ['nome', 'email', 'funcao', 'tipoAtestado'];
-
-function salvarRascunho() {
-  const dados = {};
-  CAMPOS_RASCUNHO.forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) dados[id] = el.value;
-  });
-  try { localStorage.setItem(RASCUNHO_KEY, JSON.stringify(dados)); } catch {}
-}
-
-function restaurarRascunho() {
-  try {
-    const salvo = JSON.parse(localStorage.getItem(RASCUNHO_KEY) || 'null');
-    if (!salvo) return;
-    CAMPOS_RASCUNHO.forEach((id) => {
-      const el = document.getElementById(id);
-      if (el && salvo[id]) el.value = salvo[id];
+  if (cancelButton) {
+    cancelButton.addEventListener('click', () => {
+      hideModal();
     });
-    if (salvo.tipoAtestado) atualizarCampoHoras();
-  } catch {}
+  }
+
+  return () => avisoAtestadoConfirmado;
 }
 
-function limparRascunho() {
-  try { localStorage.removeItem(RASCUNHO_KEY); } catch {}
+function getModalState() {
+  return window.__avisoAtestadoConfirmado === true;
 }
 
-function blobToBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
+function setModalState(value) {
+  window.__avisoAtestadoConfirmado = value === true;
 }
 
-form.addEventListener('submit', async (event) => {
-  event.preventDefault();
+function showWarningModal() {
+  setModalState(false);
+  showModal();
+}
 
-  if (!avisoAtestadoConfirmado) {
-    definirMensagemStatus('Confirme o aviso antes de enviar o atestado.', 'error');
-    abrirModalAvisoAtestado();
-    return;
+async function initForm() {
+  const form = $('#rh-form');
+  const tipoAtestado = $('#tipoAtestado');
+  const dataInicio = $('#dataInicio');
+  const dataFim = $('#dataFim');
+  const dias = $('#dias');
+  const projetoSelect = $('#projeto');
+  const grauParentesco = $('#grauParentesco');
+  const horasComparecimento = $('#horasComparecimento');
+  const modalCheckbox = $('#modalAvisoConfirmarCheck');
+  const modalContinueButton = $('#modalAvisoContinuar');
+
+  if (!form) return;
+  if (modalCheckbox) {
+    modalCheckbox.addEventListener('change', () => {
+      setModalState(modalCheckbox.checked);
+      if (modalContinueButton) modalContinueButton.disabled = !modalCheckbox.checked;
+    });
   }
 
-  definirEstadoEnvio(true);
-  if (mensagem) {
-    mensagem.textContent = '';
-  }
-
-  calcularFimPorDias();
-  validarDatasNaoFuturas();
-
-  if (!form.checkValidity()) {
-    form.reportValidity();
-    definirMensagemStatus('Revise os campos obrigatórios antes de enviar.', 'error');
-    definirEstadoEnvio(false);
-    return;
-  }
-
-  if (!window.jspdf) {
-    definirMensagemStatus('Falha ao carregar a biblioteca de PDF. Atualize a página.', 'error');
-    definirEstadoEnvio(false);
-    return;
-  }
-
-  const listaArquivos = Array.from(arquivos.files || []);
-  if (!listaArquivos.length) {
-    definirMensagemStatus('Selecione pelo menos um arquivo para enviar.', 'error');
-    definirEstadoEnvio(false);
-    return;
-  }
-
-  if (!window.storage || !window.db) {
-    definirMensagemStatus('Firebase não inicializado. Atualize a página e tente novamente.', 'error');
-    definirEstadoEnvio(false);
-    return;
-  }
-
-  if (!normalizarProjeto(projetoSelect?.value)) {
-    definirMensagemStatus('Selecione o projeto antes de enviar o formulario.', 'error');
-    definirEstadoEnvio(false);
-    return;
-  }
-
-  atualizarProgressoUpload(0, '0%');
-
-  try {
-    const resultadosConversao = await Promise.all(
-      listaArquivos.map(async (arquivo) => ({
-        arquivo,
-        convertido: await converterArquivoParaPdf(arquivo)
-      }))
-    );
-
-    const convertidos = resultadosConversao
-      .filter((item) => !!item.convertido)
-      .map((item) => item.convertido);
-
-    const naoSuportados = resultadosConversao
-      .filter((item) => !item.convertido)
-      .map((item) => item.arquivo.name);
-
-    if (naoSuportados.length) {
-      ocultarProgressoUpload();
-      definirMensagemStatus(`Arquivo(s) não suportado(s): ${naoSuportados.join(', ')}`, 'error');
-      definirEstadoEnvio(false);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!getModalState()) {
+      setStatus('Confirme o aviso antes de enviar o atestado.', 'error');
+      showWarningModal();
       return;
     }
 
-    // Validar dias - se inválido, recalcular a partir das datas
-    const dataInicioISO = displayParaISO(dataInicio.value);
-    let dataFimISO = displayParaISO(dataFim.value);
-    const isDeclaracao = tipoAtestado.value === 'Declaração';
-    const isObito = tipoAtestado.value === 'Atestado de Óbito';
+    setStatus('', 'info');
+    setLoading(true);
+    resetProgress();
 
-    if (isObito && !normalizarProjeto(grauParentesco?.value)) {
-      ocultarProgressoUpload();
-      definirMensagemStatus('Selecione o grau de parentesco para o atestado de óbito.', 'error');
-      definirEstadoEnvio(false);
+    const nome = $('#nome');
+    const email = $('#email');
+    const funcao = $('#funcao');
+    const arquivosInput = $('#arquivos');
+
+    if (!nome?.value.trim() || !email?.value.trim() || !funcao?.value.trim()) {
+      setStatus('Preencha nome, email e função.', 'error');
+      setLoading(false);
       return;
     }
 
-    if (isDeclaracao) {
-      dataFimISO = dataInicioISO;
+    if (!projetoSelect?.value) {
+      setStatus('Selecione um projeto.', 'error');
+      setLoading(false);
+      return;
+    }
+
+    if (!tipoAtestado?.value) {
+      setStatus('Selecione o tipo de atestado.', 'error');
+      setLoading(false);
+      return;
+    }
+
+    if (!validateDates()) {
+      setLoading(false);
+      return;
+    }
+
+    if (!arquivosInput?.files?.length) {
+      setStatus('Selecione pelo menos um arquivo para enviar.', 'error');
+      setLoading(false);
+      return;
+    }
+
+    const tipo = tipoAtestado.value;
+    if (tipo === 'Atestado de Óbito' && !grauParentesco?.value) {
+      setStatus('Selecione o grau de parentesco para atestado de óbito.', 'error');
+      setLoading(false);
+      return;
+    }
+
+    let dataFimValue = dataFim.value;
+    if (tipo === 'Declaração') {
+      dataFimValue = dataInicio.value;
       dataFim.value = dataInicio.value;
       dias.value = '1';
     }
 
-    let diasEnvio = 0;
-    if (!isObito) {
-      diasEnvio = isDeclaracao ? 1 : (Number(dias.value) || 0);
-      if (!Number.isInteger(diasEnvio) || diasEnvio < 1 || diasEnvio > 365) {
-        if (dataInicioISO && dataFimISO) {
-          const inicio = toUTCDate(dataInicioISO);
-          const fim = toUTCDate(dataFimISO);
-          diasEnvio = Math.floor((fim - inicio) / MS_POR_DIA) + 1;
-        } else {
-          throw new Error('Preencha as datas de início e fim para calcular os dias.');
-        }
-      }
-      if (diasEnvio < 1 || diasEnvio > 365) {
-        throw new Error('Os dias devem ser entre 1 e 365. Verifique as datas de início e fim.');
-      }
+    if (!normalizeProject(projetoSelect.value)) {
+      setStatus('Selecione o projeto antes de enviar o formulário.', 'error');
+      setLoading(false);
+      return;
     }
 
-    // Upload direto para Firebase Storage via client SDK — sem necessidade de service account no backend
-    const nomePdfPadrao = montarNomePdfPadrao();
     const envioId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const tracking_id = Math.random().toString(36).slice(2, 10).toUpperCase();
-    const totalBytes = convertidos.reduce((total, c) => total + (Number(c?.blob?.size) || 0), 0);
-    const bytesTransferidosPorArquivo = new Array(convertidos.length).fill(0);
-
-    const arquivosUpload = await Promise.all(convertidos.map(async (convertido, indice) => {
-      const nomeArquivo = convertidos.length > 1
-        ? nomePdfPadrao.replace('.pdf', ` - ANEXO ${indice + 1}.pdf`)
-        : nomePdfPadrao;
-      const caminho = `envios/${envioId}/${nomeArquivo}`;
-      const storageRef = window.storage.ref(caminho);
-      const url = await uploadComProgresso(storageRef, convertido.blob, bytesTransferidosPorArquivo, indice, totalBytes, nomeArquivo);
-      return { nome: nomeArquivo, url };
-    }));
-
-    atualizarProgressoUpload(92, '92%');
-
-    // Salvar metadados no Firestore via client SDK
-    const novoEnvio = {
-      tracking_id,
-      nome: document.getElementById('nome').value.trim(),
-      email: document.getElementById('email').value.trim(),
-      funcao: document.getElementById('funcao').value.trim(),
-      projeto: projetoSelect.value,
-      tipo_atestado: tipoAtestado.value,
-      horas_comparecimento: horasInput.value ? String(Number(horasInput.value)) : '',
-      data_inicio: dataInicioISO,
-      data_fim: dataFimISO,
-      grau_parentesco: isObito ? grauParentesco.value : null,
-      arquivos: arquivosUpload,
-      criado_em: new Date().toISOString()
-    };
-    if (!isObito) {
-      novoEnvio.dias = diasEnvio;
+    let arquivosUpload = [];
+    try {
+      arquivosUpload = await uploadFiles(arquivosInput.files, envioId);
+    } catch (err) {
+      setStatus(`Erro de upload de arquivos: ${err.message}`, 'error');
+      setLoading(false);
+      return;
     }
 
-    await window.db.collection('envios_atestados').add(novoEnvio);
+    const novoEnvio = {
+      nome: nome.value.trim(),
+      email: email.value.trim(),
+      funcao: funcao.value.trim(),
+      projeto: projetoSelect.value,
+      tipo_atestado: tipo,
+      horas_comparecimento: horasComparecimento?.value ? String(Number(horasComparecimento.value)) : '',
+      data_inicio: toISOStringDate(dataInicio.value),
+      data_fim: toISOStringDate(dataFimValue),
+      grau_parentesco: tipo === 'Atestado de Óbito' ? grauParentesco?.value : null,
+      dias: Number(dias.value) || undefined,
+      arquivos: arquivosUpload,
+      criado_em: new Date().toISOString(),
+      tracking_id: `${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
+    };
 
-    // Enviar email de confirmação via Cloud Function (não-bloqueante)
+    const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    const backendBase = isLocal ? 'http://localhost:3001' : window.location.origin;
+
     try {
-      const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
-      const emailUrl = isLocal
-        ? 'https://normatel-rh.web.app/api/email'
-        : `${window.location.origin}/api/email`;
-      const respostaEmail = await fetch(emailUrl, {
+      await safeFetchJson(`${backendBase}/api/envios`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(novoEnvio)
       });
-      if (respostaEmail.ok) {
-        const dados = await respostaEmail.json().catch(() => ({}));
-      } else {
-        const erro = await respostaEmail.json().catch(() => ({}));
-        console.error('[Email] Falha na API. Status:', respostaEmail.status, '| Erro:', erro.error || JSON.stringify(erro));
-      }
-    } catch (emailErr) {
-      console.error('[Email] Erro de rede ao chamar API:', emailErr.message);
-    }
-
-    atualizarProgressoUpload(100, '100%');
-    await registrarEventoBackend('envio_realizado', {
-      projeto: novoEnvio.projeto,
-      tipo_atestado: novoEnvio.tipo_atestado,
-      tracking_id
-    });
-
-    sessionStorage.setItem('envio_success_data', JSON.stringify({
-      tracking_id,
-      nome: novoEnvio.nome,
-      email: novoEnvio.email,
-      criado_em: novoEnvio.criado_em
-    }));
-
-    limparRascunho();
-    window.location.href = 'sucesso.html';
-  } catch (error) {
-    console.error('Erro ao enviar atestado:', error);
-    ocultarProgressoUpload();
-    const textoErro = `${error?.code || ''} ${error?.message || ''}`.toLowerCase();
-    if (textoErro.includes('storage/unauthorized') || textoErro.includes('forbidden')) {
-      definirMensagemStatus('Erro ao enviar: Firebase Storage bloqueou o upload. Publique as regras de Storage no Firebase Console.', 'error');
-    } else {
-      definirMensagemStatus(`Erro ao enviar: ${error?.message || 'Falha inesperada.'}`, 'error');
-    }
-    definirEstadoEnvio(false);
-  }
-});
-
-// ── Modal de aviso obrigatório antes do formulário ──────────────────
-let avisoAtestadoConfirmado = false;
-const modalAviso = document.getElementById('modalAvisoAtestado');
-const modalAvisoCheck = document.getElementById('modalAvisoConfirmarCheck');
-const modalAvisoContinuar = document.getElementById('modalAvisoContinuar');
-const modalAvisoCancelar = document.getElementById('modalAvisoCancelar');
-let avisoElementoFocoAnterior = null;
-
-function obterFocaveisModalAviso() {
-  if (!modalAviso) return [];
-  return Array.from(
-    modalAviso.querySelectorAll('input, button, [href], [tabindex]:not([tabindex="-1"])')
-  ).filter((el) => !el.disabled && el.offsetParent !== null);
-}
-
-function prenderFocoModalAviso(event) {
-  if (event.key === 'Escape') {
-    event.preventDefault();
-    return;
-  }
-  if (event.key !== 'Tab') return;
-  const focaveis = obterFocaveisModalAviso();
-  if (!focaveis.length) return;
-  const primeiro = focaveis[0];
-  const ultimo = focaveis[focaveis.length - 1];
-  if (event.shiftKey && document.activeElement === primeiro) {
-    event.preventDefault();
-    ultimo.focus();
-  } else if (!event.shiftKey && document.activeElement === ultimo) {
-    event.preventDefault();
-    primeiro.focus();
-  }
-}
-
-function abrirModalAvisoAtestado() {
-  if (!modalAviso || avisoAtestadoConfirmado) return;
-  avisoElementoFocoAnterior = document.activeElement;
-  modalAviso.classList.add('modal-aberto');
-  document.body.classList.add('modal-open');
-  if (modalAvisoCheck) modalAvisoCheck.checked = false;
-  if (modalAvisoContinuar) modalAvisoContinuar.disabled = true;
-  document.addEventListener('keydown', prenderFocoModalAviso, true);
-  setTimeout(() => modalAvisoCheck?.focus(), 30);
-}
-
-function fecharModalAvisoAtestado() {
-  if (!modalAviso) return;
-  modalAviso.classList.remove('modal-aberto');
-  document.body.classList.remove('modal-open');
-  document.removeEventListener('keydown', prenderFocoModalAviso, true);
-}
-
-async function registrarConfirmacaoAviso() {
-  const confirmacao = {
-    usuarioId: localStorage.getItem('rh_user_id') || '',
-    email: localStorage.getItem('rh_user_email') || document.getElementById('email')?.value?.trim() || '',
-    formulario: 'formulario.html',
-    projeto: normalizarProjeto(projetoSelect?.value) || '',
-    user_agent: navigator.userAgent || '',
-    confirmado_em: new Date().toISOString()
-  };
-  try {
-    let ip = '';
-    try {
-      const resp = await fetch('https://api.ipify.org?format=json');
-      if (resp.ok) ip = (await resp.json()).ip || '';
-    } catch {}
-    confirmacao.ip = ip;
-    await window.db.collection('confirmacoes_aviso').add(confirmacao);
-  } catch (err) {
-    console.error('Falha ao registrar confirmação de aviso:', err?.message || err);
-    throw err;
-  }
-}
-
-if (modalAvisoCheck && modalAvisoContinuar) {
-  modalAvisoCheck.addEventListener('change', () => {
-    modalAvisoContinuar.disabled = !modalAvisoCheck.checked;
-  });
-}
-
-if (modalAvisoContinuar) {
-  modalAvisoContinuar.addEventListener('click', async () => {
-    if (!modalAvisoCheck?.checked) return;
-    modalAvisoContinuar.disabled = true;
-    try {
-      await registrarConfirmacaoAviso();
-    } catch {
-      definirMensagemStatus('Não foi possível registrar sua confirmação. Tente novamente.', 'error');
-      modalAvisoContinuar.disabled = false;
+    } catch (err) {
+      setStatus(`Falha ao salvar metadados: ${err.message}`, 'error');
+      setLoading(false);
       return;
     }
-    avisoAtestadoConfirmado = true;
-    fecharModalAvisoAtestado();
-    if (avisoElementoFocoAnterior?.focus) avisoElementoFocoAnterior.focus();
+
+    try {
+      await safeFetchJson(`${backendBase}/api/email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(novoEnvio)
+      });
+    } catch (err) {
+      console.warn('Falha ao notificar email:', err.message);
+    }
+
+    await registrarEventoBackend('envio_realizado', { projeto: novoEnvio.projeto, tipo_atestado: novoEnvio.tipo_atestado, tracking_id: novoEnvio.tracking_id });
+    sessionStorage.setItem('envio_success_data', JSON.stringify({ tracking_id: novoEnvio.tracking_id, nome: novoEnvio.nome, email: novoEnvio.email, criado_em: novoEnvio.criado_em }));
+    window.location.href = getSuccessRedirectUrl();
   });
-}
 
-if (modalAvisoCancelar) {
-  modalAvisoCancelar.addEventListener('click', () => {
-    fecharModalAvisoAtestado();
-    const backLink = document.querySelector('.form-back-btn');
-    window.location.href = backLink?.getAttribute('href') || 'index.html';
+  if (tipoAtestado) {
+    tipoAtestado.addEventListener('change', () => {
+      updateSpecialFields();
+    });
+  }
+
+  if (dataInicio) {
+    dataInicio.addEventListener('change', updateDaysFromDates);
+  }
+  if (dataFim) {
+    dataFim.addEventListener('change', updateDaysFromDates);
+  }
+
+  if ($('#modalAvisoConfirmarCheck')) {
+    $('#modalAvisoConfirmarCheck').addEventListener('change', () => {
+      if ($('#modalAvisoContinuar')) {
+        $('#modalAvisoContinuar').disabled = !$('#modalAvisoConfirmarCheck').checked;
+      }
+      setModalState($('#modalAvisoConfirmarCheck').checked);
+    });
+  }
+
+  $('#modalAvisoContinuar')?.addEventListener('click', () => hideModal());
+  $('#modalAvisoCancelar')?.addEventListener('click', () => hideModal());
+  $('#formBackToIndexBtn')?.addEventListener('click', () => {
+    setStatus('', 'info');
   });
+
+  initAttachmentHandlers();
+  updateSpecialFields();
 }
 
-atualizarCampoHoras();
-validarDatasNaoFuturas();
-restaurarRascunho();
-registrarEventoBackend('acesso_pagina');
-ocultarProgressoUpload();
-inicializarGateProjeto();
-atualizarLinkVoltarFormulario();
-if (form && !form.classList.contains('hidden')) {
-  abrirModalAvisoAtestado();
-}
-
+document.addEventListener('DOMContentLoaded', initForm);

@@ -333,37 +333,39 @@ function forcarLogoutPorRevogacaoAcesso() {
 
 function iniciarMonitoramentoAcessoRh() {
   const email = String(localStorage.getItem('rh_user_email') || '').trim().toLowerCase();
-  if (!email || typeof window?.firebase?.firestore !== 'function') {
+  const token = String(localStorage.getItem('rh_auth_token') || '').trim();
+  if (!email || !token) {
     return;
   }
 
-  try {
-    cancelMonitorAcessoRh = window.firebase.firestore()
-      .collection('usuarios_rh')
-      .where('email', '==', email)
-      .limit(1)
-      .onSnapshot((snapshot) => {
-        if (!snapshot || snapshot.empty) {
-          forcarLogoutPorRevogacaoAcesso();
-          return;
+  // Poll à API (Admin SDK) em vez de onSnapshot direto — leitura de
+  // usuarios_rh está bloqueada por regra. Revoga acesso se reprovado/removido.
+  async function verificarAcesso() {
+    try {
+      const resp = await fetch(`${obterBackendConfigurado()}/api/usuarios/me`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (resp.status === 401) { forcarLogoutPorRevogacaoAcesso(); return; }
+      if (!resp.ok) return;
+      const usuario = await resp.json();
+      if (!usuario || usuario.existe === false || usuario.aprovado !== true) {
+        forcarLogoutPorRevogacaoAcesso();
+        return;
+      }
+      if (window.RHPermissions && usuario.role) {
+        const rolePrev = window.RHPermissions.getRole();
+        window.RHPermissions.setRole(usuario.role);
+        if (rolePrev !== window.RHPermissions.getRole()) {
+          window.RHPermissions.aplicarPermissoesUI();
         }
+      }
+    } catch { /* rede — mantém sessão, tenta no próximo ciclo */ }
+  }
 
-        const usuario = snapshot.docs[0].data() || {};
-        const status = String(usuario.status || '').toLowerCase();
-        const aprovado = usuario.aprovado === true || status === 'aprovado';
-        if (!aprovado) {
-          forcarLogoutPorRevogacaoAcesso();
-          return;
-        }
-        // Atualiza role em tempo real caso seja alterado por outro admin
-        if (window.RHPermissions && usuario.role) {
-          const rolePrev = window.RHPermissions.getRole();
-          window.RHPermissions.setRole(usuario.role);
-          if (rolePrev !== window.RHPermissions.getRole()) {
-            window.RHPermissions.aplicarPermissoesUI();
-          }
-        }
-      }, () => { /* erro de transporte — SDK reconecta automaticamente */ });
+  try {
+    verificarAcesso();
+    const intervalo = setInterval(verificarAcesso, 60000);
+    cancelMonitorAcessoRh = () => clearInterval(intervalo);
   } catch {
     // Sem monitoramento em caso de falha de permissao/rede.
   }

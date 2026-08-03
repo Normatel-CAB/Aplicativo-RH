@@ -1,15 +1,16 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
+    
+    // Funções auxiliares
     function isStatusUsuarioValido(status) {
       return status == 'pendente' || status == 'aprovado' || status == 'rejeitado';
     }
-
+    
     function isRoleValido(role) {
       return role == 'admin' || role == 'colaborador';
     }
-
+    
     function isCadastroUsuarioValido() {
       return request.resource.data.keys().hasAll(['email','nome','status','criado_em'])
         && request.resource.data.email is string
@@ -20,12 +21,15 @@ service cloud.firestore {
         && request.resource.data.email.size() <= 180
         && request.resource.data.nome.size() > 0
         && request.resource.data.nome.size() <= 180
-        && isStatusUsuarioValido(request.resource.data.status);
+        && isStatusUsuarioValido(request.resource.data.status)
+        && request.resource.data.status == 'pendente'
+        && !request.resource.data.keys().hasAny(['aprovado']) || request.resource.data.aprovado == false
+        && !request.resource.data.keys().hasAny(['role']);
     }
-
+    
     function isAtualizacaoModeracaoUsuarioValida() {
       return request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(['status', 'aprovado', 'atualizado_em', 'role'])
+        .hasOnly(['status', 'aprovado', 'atualizado_em', 'role'])
         && request.resource.data.email == resource.data.email
         && request.resource.data.nome == resource.data.nome
         && request.resource.data.status is string
@@ -41,14 +45,14 @@ service cloud.firestore {
           isRoleValido(request.resource.data.role)
         );
     }
-
+    
     function isEnvioValido() {
       let d = request.resource.data;
       let isObito = d.tipo_atestado == 'Atestado de Óbito';
       return d.keys().hasAll([
-          'nome','funcao','projeto','tipo_atestado',
-          'data_inicio','data_fim','arquivos','criado_em'
-        ])
+        'nome','funcao','projeto','tipo_atestado',
+        'data_inicio','data_fim','arquivos','criado_em'
+      ])
         && d.nome is string
         && d.funcao is string
         && d.projeto is string
@@ -70,62 +74,62 @@ service cloud.firestore {
         && (
           isObito
             ? (!d.keys().hasAny(['dias'])
-               && d.grau_parentesco is string
-               && d.grau_parentesco.size() > 0
-               && d.grau_parentesco.size() <= 40)
+              && d.grau_parentesco is string
+              && d.grau_parentesco.size() > 0
+              && d.grau_parentesco.size() <= 40)
             : (d.dias is int && d.dias >= 1 && d.dias <= 365)
         );
     }
-
+    
     function isAtualizacaoAtendimentoEnvioValida() {
       return request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(['atendimento_status', 'atendimento_atualizado_em', 'historico'])
+        .hasOnly(['atendimento_status', 'atendimento_atualizado_em', 'historico'])
         && request.resource.data.atendimento_status is string
         && (request.resource.data.atendimento_status == 'feito'
             || request.resource.data.atendimento_status == 'pendente')
         && request.resource.data.atendimento_atualizado_em is string;
     }
-
+    
     function isSoftDeleteEnvioValido() {
       return request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(['excluido', 'excluido_em', 'motivo_exclusao', 'excluido_por', 'historico'])
+        .hasOnly(['excluido', 'excluido_em', 'motivo_exclusao', 'excluido_por', 'historico'])
         && request.resource.data.excluido == true
         && request.resource.data.excluido_em is string
         && request.resource.data.motivo_exclusao is string
         && request.resource.data.motivo_exclusao.size() > 0
         && request.resource.data.motivo_exclusao.size() <= 300;
     }
-
+    
     function isRestauracaoEnvioValida() {
       return request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(['excluido', 'excluido_em', 'historico'])
+        .hasOnly(['excluido', 'excluido_em', 'historico'])
         && request.resource.data.excluido == false;
     }
-
+    
     function isAtualizacaoCargoValida() {
       return request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(['role', 'atualizado_em'])
+        .hasOnly(['role', 'atualizado_em'])
         && request.resource.data.email == resource.data.email
         && request.resource.data.nome == resource.data.nome
         && isRoleValido(request.resource.data.role);
     }
-
-    // Usuários RH:
-    // - Leitura pública: painel RH usa MSAL (não Firebase Auth), então request.auth é null
-    //   para admins — exigir auth bloquearia o painel inteiro.
-    // - Create: registro público com validação de campos obrigatórios
-    // - Update: moderação (status/aprovado/role) ou alteração de cargo isolada
-    // - Delete: bloqueado; feito apenas via Admin SDK
+    
+    // Usuários RH (contém PII: nome/email/cargo):
+    // - Leitura: Permitida apenas para usuários autenticados com Firebase Auth
+    // - Create: auto-cadastro público, mas sempre pendente e sem cargo
+    //   (isCadastroUsuarioValido impede nascer admin/aprovado).
+    // - Update/Delete: BLOQUEADOS. Aprovação, rejeição e mudança de cargo
+    //   ocorrem exclusivamente via API admin (Admin SDK) — impede
+    //   escalonamento de privilégio por escrita anônima.
     match /usuarios_rh/{userDoc} {
-      allow read: if true;
+      // Permitir leitura apenas para usuários autenticados (Firebase Auth)
+      allow read: if request.auth != null;
       allow create: if isCadastroUsuarioValido();
-      allow update: if isAtualizacaoModeracaoUsuarioValida()
-                    || isAtualizacaoCargoValida();
-      allow delete: if false;
+      allow update, delete: if false;
     }
-
+    
     // Atestados enviados:
-    // - Leitura pública: painel RH usa MSAL (não Firebase Auth), request.auth é null
+    // - Leitura: permitida para todos (painel RH usa MSAL, não Firebase Auth)
     // - Create: formulário público com validação de campos obrigatórios
     // - Update: somente campos permitidos (status, soft-delete, restauração)
     //   sem exigência de Firebase Auth pelo mesmo motivo acima
@@ -134,64 +138,64 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isEnvioValido();
       allow update: if isAtualizacaoAtendimentoEnvioValida()
-                    || isSoftDeleteEnvioValido()
-                    || isRestauracaoEnvioValida();
+                  || isSoftDeleteEnvioValido()
+                  || isRestauracaoEnvioValida();
       allow delete: if false;
     }
-
+    
     // Eventos de frontend: escrita pública com rate-limit na Cloud Function
     // Leitura apenas autenticada
     match /eventos_frontend/{eventoDoc} {
       allow read: if request.auth != null;
       allow create: if request.resource.data.keys().hasAll(['acao', 'criado_em'])
-                    && request.resource.data.acao is string
-                    && request.resource.data.acao.size() > 0
-                    && request.resource.data.acao.size() <= 80;
+                  && request.resource.data.acao is string
+                  && request.resource.data.acao.size() > 0
+                  && request.resource.data.acao.size() <= 80;
       allow update, delete: if false;
     }
-
+    
     // Projetos:
-    // - Leitura pública (colaboradores precisam ver sem Firebase Auth)
+    // - Leitura: permitida para todos (colaboradores precisam ver sem Firebase Auth)
     // - Create/Update: público com validação — RH autentica via MSAL, não Firebase Auth
     // - Delete permanente: bloqueado; app usa soft-delete (excluido: true)
     match /projetos/{projetoDoc} {
       allow read: if true;
       allow create: if request.resource.data.nome is string
-                    && request.resource.data.nome.size() > 0
-                    && request.resource.data.nome.size() <= 200;
+                  && request.resource.data.nome.size() > 0
+                  && request.resource.data.nome.size() <= 200;
       allow update: if request.resource.data.nome is string
-                    && request.resource.data.nome.size() > 0
-                    && request.resource.data.nome.size() <= 200;
+                  && request.resource.data.nome.size() > 0
+                  && request.resource.data.nome.size() <= 200;
       allow delete: if false;
     }
-
+    
     // Logs de auditoria (quem marcou feito / quem excluiu):
-    // - Leitura pública (painel RH usa MSAL, sem Firebase Auth)
+    // - Leitura: permitida para todos (painel RH usa MSAL, sem Firebase Auth)
     // - Create: escrita pública com validação mínima
     // - Update/Delete: bloqueado; logs são imutáveis
     match /logs_auditoria/{logDoc} {
       allow read: if true;
       allow create: if request.resource.data.keys().hasAll(['acao', 'criado_em'])
-                    && request.resource.data.acao is string
-                    && request.resource.data.acao.size() > 0
-                    && request.resource.data.acao.size() <= 80
-                    && request.resource.data.criado_em is string;
+                  && request.resource.data.acao is string
+                  && request.resource.data.acao.size() > 0
+                  && request.resource.data.acao.size() <= 80
+                  && request.resource.data.criado_em is string;
       allow update, delete: if false;
     }
-
+    
     // Confirmações do aviso obrigatório antes do envio de atestado:
-    // - Create público com validação; registro imutável (log)
-    // - Leitura apenas autenticada
+    // - Leitura: permitida apenas para usuários autenticados
+    // - Create: público com validação; registro imutável (log)
     match /confirmacoes_aviso/{confDoc} {
       allow read: if request.auth != null;
       allow create: if request.resource.data.keys().hasAll(['formulario', 'confirmado_em'])
-                    && request.resource.data.formulario is string
-                    && request.resource.data.formulario.size() > 0
-                    && request.resource.data.formulario.size() <= 80
-                    && request.resource.data.confirmado_em is string;
+                  && request.resource.data.formulario is string
+                  && request.resource.data.formulario.size() > 0
+                  && request.resource.data.formulario.size() <= 80
+                  && request.resource.data.confirmado_em is string;
       allow update, delete: if false;
     }
-
+    
     // Todo o resto: somente usuário autenticado
     match /{document=**} {
       allow read, write: if request.auth != null;

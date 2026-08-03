@@ -389,7 +389,9 @@ function extrairPathApi(req) {
 
 const ROTAS_ADMIN = [
   "/api/usuarios/pendentes",
+  "/api/usuarios/aprovar/",
   "/api/usuarios/rejeitar/",
+  "/api/usuarios/cargo/",
   "/api/envios/status/",
   "/api/envios/excluir/",
   "/api/envios/restaurar/",
@@ -401,7 +403,7 @@ const ROTAS_ADMIN = [
 // (telemetria). Trata GET dessas rotas como admin.
 function rotaExigeAdmin(pathname, metodo) {
   if (ROTAS_ADMIN.some((prefixo) => pathname.startsWith(prefixo))) return true;
-  if (metodo === "GET" && (pathname === "/api/eventos" || pathname === "/api/envios")) return true;
+  if (metodo === "GET" && pathname === "/api/eventos") return true;
   return false;
 }
 
@@ -454,6 +456,53 @@ async function verificarTokenAdmin(req) {
   return false;
 }
 
+// Valida assinatura do token Entra ID (JWKS remoto) e devolve o email do
+// usuário, ou "" se inválido. Não confere ADMIN_EMAILS — apenas autenticidade.
+async function obterEmailUsuarioAutenticado(req) {
+  const authHeader = String(req.headers["authorization"] || "").trim();
+  if (!authHeader.startsWith("Bearer ")) return "";
+  try {
+    const {jwtVerify} = await import("jose");
+    const jwks = await obterAadJwks();
+    const {payload} = await jwtVerify(authHeader.slice(7), jwks, {
+      issuer: AAD_ISSUER,
+      audience: AAD_CLIENT_ID,
+    });
+    return String(
+        payload.preferred_username || payload.email || payload.upn || "",
+    ).toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+// Usuário autenticado E aprovado no Firestore (ou admin da allowlist).
+async function verificarUsuarioAprovado(req) {
+  const email = await obterEmailUsuarioAutenticado(req);
+  if (!email) return false;
+
+  const adminEmails = String(process.env.ADMIN_EMAILS || "")
+      .split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+  if (adminEmails.includes(email)) return true;
+
+  const db = await obterFirestoreObrigatorio();
+  const snapshot = await db.collection(FIRESTORE_COLLECTIONS.usuarios)
+      .where("email", "==", email)
+      .limit(1)
+      .get();
+  if (snapshot.empty) return false;
+  const usuario = snapshot.docs[0].data() || {};
+  return usuario.aprovado === true ||
+    String(usuario.status || "").toLowerCase() === "aprovado";
+}
+
+// Reads sensíveis (envios/eventos) exigem usuário aprovado; moderação exige
+// admin. GET /api/usuarios/existe e POST públicos ficam de fora.
+function rotaExigeUsuarioAprovado(pathname, metodo) {
+  if (metodo === "GET" && pathname === "/api/envios") return true;
+  return false;
+}
+
 async function responderApi(req, res) {
   const origem = req.headers.origin || "unknown";
   const ip = obterIpCliente(req);
@@ -480,6 +529,12 @@ async function responderApi(req, res) {
   }
 
   if (req.method !== "OPTIONS" && rotaExigeAdmin(pathname, req.method) && !(await verificarTokenAdmin(req))) {
+    res.status(401).json({error: "Não autorizado."});
+    return;
+  }
+
+  if (req.method !== "OPTIONS" && rotaExigeUsuarioAprovado(pathname, req.method) &&
+      !(await verificarUsuarioAprovado(req))) {
     res.status(401).json({error: "Não autorizado."});
     return;
   }
@@ -605,15 +660,56 @@ async function responderApi(req, res) {
         return;
       }
 
-      const doc = snapshot.docs[0];
-      const usuario = doc.data() || {};
+      // Endpoint público (checagem pré-login). Não retorna PII (id/nome/email)
+      // para evitar enumeração/confirmação de dados de terceiros — só o mínimo
+      // que o fluxo de login precisa.
+      const usuario = snapshot.docs[0].data() || {};
       res.status(200).json({
         existe: true,
-        id: doc.id,
-        nome: usuario.nome,
-        email: usuario.email,
         aprovado: !!usuario.aprovado,
       });
+      return;
+    }
+
+    if (pathname === "/api/usuarios/me" && req.method === "GET") {
+      const email = await obterEmailUsuarioAutenticado(req);
+      if (!email) {
+        res.status(401).json({error: "Não autorizado."});
+        return;
+      }
+      const db = await obterFirestoreObrigatorio();
+      const snapshot = await db.collection(FIRESTORE_COLLECTIONS.usuarios)
+          .where("email", "==", email)
+          .limit(1)
+          .get();
+      if (snapshot.empty) {
+        res.status(200).json({existe: false, aprovado: false, role: null});
+        return;
+      }
+      const usuario = snapshot.docs[0].data() || {};
+      const aprovado = usuario.aprovado === true ||
+        String(usuario.status || "").toLowerCase() === "aprovado";
+      const adminEmails = String(process.env.ADMIN_EMAILS || "")
+          .split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+      const role = adminEmails.includes(email) ? "admin" :
+        (String(usuario.role || "colaborador").toLowerCase() === "admin" ?
+          "admin" : "colaborador");
+      res.status(200).json({existe: true, aprovado, role});
+      return;
+    }
+
+    // Lista completa de usuários (admin) — substitui leitura direta do SDK.
+    if (pathname === "/api/usuarios" && req.method === "GET") {
+      if (!(await verificarTokenAdmin(req))) {
+        res.status(401).json({error: "Não autorizado."});
+        return;
+      }
+      const db = await obterFirestoreObrigatorio();
+      const snapshot = await db.collection(FIRESTORE_COLLECTIONS.usuarios)
+          .orderBy("criado_em", "desc")
+          .get();
+      const data = snapshot.docs.map((doc) => ({id: doc.id, ...(doc.data() || {})}));
+      res.status(200).json(data);
       return;
     }
 
@@ -672,6 +768,62 @@ async function responderApi(req, res) {
       return;
     }
 
+    if (/^\/api\/usuarios\/aprovar\//.test(pathname) && req.method === "POST") {
+      const id = pathname.split("/").pop();
+      if (!id || id.length > 50) {
+        res.status(400).json({error: "ID inválido"});
+        return;
+      }
+
+      const body = await obterBodyJson(req);
+      const role = ["admin", "colaborador"].includes(String(body?.role || "").toLowerCase()) ?
+        String(body.role).toLowerCase() : "colaborador";
+
+      const db = await obterFirestoreObrigatorio();
+      const ref = db.collection(FIRESTORE_COLLECTIONS.usuarios).doc(String(id));
+      const doc = await ref.get();
+      if (!doc.exists) {
+        res.status(404).json({error: "Usuário não encontrado"});
+        return;
+      }
+
+      await ref.set({
+        status: "aprovado",
+        aprovado: true,
+        role,
+        atualizado_em: new Date().toISOString(),
+      }, {merge: true});
+      res.status(200).json({id, aprovado: true, role});
+      return;
+    }
+
+    if (/^\/api\/usuarios\/cargo\//.test(pathname) && req.method === "POST") {
+      const id = pathname.split("/").pop();
+      if (!id || id.length > 50) {
+        res.status(400).json({error: "ID inválido"});
+        return;
+      }
+
+      const body = await obterBodyJson(req);
+      const role = String(body?.role || "").toLowerCase();
+      if (!["admin", "colaborador"].includes(role)) {
+        res.status(400).json({error: "role deve ser 'admin' ou 'colaborador'"});
+        return;
+      }
+
+      const db = await obterFirestoreObrigatorio();
+      const ref = db.collection(FIRESTORE_COLLECTIONS.usuarios).doc(String(id));
+      const doc = await ref.get();
+      if (!doc.exists) {
+        res.status(404).json({error: "Usuário não encontrado"});
+        return;
+      }
+
+      await ref.set({role, atualizado_em: new Date().toISOString()}, {merge: true});
+      res.status(200).json({id, role});
+      return;
+    }
+
     if (/^\/api\/usuarios\/rejeitar\//.test(pathname) && req.method === "POST") {
       const id = pathname.split("/").pop();
       if (!id || id.length > 50) {
@@ -695,7 +847,8 @@ async function responderApi(req, res) {
         } catch (e) {
           // Se não existir no Auth, ignora
           if (e.code !== 'auth/user-not-found') {
-            res.status(500).json({error: `Erro ao remover do Authentication: ${e.message}`});
+            logger.error("Erro ao remover do Authentication", e);
+            res.status(500).json({error: "Erro ao remover do Authentication"});
             return;
           }
         }
@@ -800,7 +953,7 @@ async function responderApi(req, res) {
         return;
       } catch (erroFetch) {
         logger.error("Erro no proxy de arquivo", erroFetch);
-        res.status(502).json({error: `Falha ao baixar arquivo remoto (${erroFetch.message})`});
+        res.status(502).json({error: "Falha ao baixar arquivo remoto"});
         return;
       }
     }
@@ -827,7 +980,7 @@ async function responderApi(req, res) {
         res.status(200).json({success: true, para: emailDestino, id: resultado.id});
       } catch (emailErr) {
         logger.error("Falha ao enviar email via Resend", {erro: emailErr.message, para: emailDestino});
-        res.status(500).json({error: `Falha ao enviar email: ${emailErr.message}`});
+        res.status(500).json({error: "Falha ao enviar email"});
       }
       return;
     }
@@ -836,7 +989,8 @@ async function responderApi(req, res) {
     res.status(404).json({error: "Rota não encontrada"});
   } catch (error) {
     logger.error("Erro na API", error);
-    res.status(500).json({error: "Erro interno do servidor", detalhe: error.message});
+    // Não expõe error.message ao cliente (evita vazar stack/detalhe interno).
+    res.status(500).json({error: "Erro interno do servidor"});
   }
 }
 
@@ -880,6 +1034,12 @@ function baixarArquivoRemotoProxy(urlArquivo, redirecionamentosRestantes = 3) {
       if (status >= 300 && status < 400 && location && redirecionamentosRestantes > 0) {
         const proximaUrl = new URL(location, parsed).toString();
         resp.resume();
+        // Revalida host a cada redirect: impede SSRF por Location apontando
+        // para host interno/arbitrário após um redirect do host permitido.
+        if (!urlProxyPermitida(proximaUrl)) {
+          reject(new Error("Redirect para host não permitido"));
+          return;
+        }
         baixarArquivoRemotoProxy(proximaUrl, redirecionamentosRestantes - 1)
             .then(resolve).catch(reject);
         return;
