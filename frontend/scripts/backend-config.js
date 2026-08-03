@@ -1,7 +1,11 @@
 // Configuração do Backend RH
 //const BACKEND_URL = '';
 
-const DEFAULT_REMOTE_BACKEND_URL = '';
+// URL padrão do backend (Cloud Functions Gen2 / Cloud Run, projeto normatel-rh,
+// southamerica-east1). Fallback usado quando não há rh_backend_url no
+// localStorage nem window.__RH_BACKEND_URL__. Faz o site funcionar sem config
+// manual no navegador. Fonte canônica deste valor para todos os scripts.
+const DEFAULT_REMOTE_BACKEND_URL = 'https://api-vgqcbmomea-rj.a.run.app';
 
 function resolverBackendUrl() {
   if (typeof window === 'undefined' || typeof localStorage === 'undefined') {

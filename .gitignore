@@ -18,3 +18,4 @@ service-account*.json
 # Dados locais com PII — nunca commitar
 backend/data/
 *.json.json
+firebase-debug.log
