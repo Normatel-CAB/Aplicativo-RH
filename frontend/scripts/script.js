@@ -127,13 +127,8 @@ async function uploadFiles(files, envioId) {
         task.lastBytesTransferred = snapshot.bytesTransferred;
         const progresso = Math.min(100, Math.round((progressBytes / totalBytes) * 100));
         updateProgress(progresso, `${progresso}%`);
-      }, reject, async () => {
-        try {
-          const url = await task.snapshot.ref.getDownloadURL();
-          resolve({ nome: file.name, url });
-        } catch (err) {
-          reject(err);
-        }
+      }, reject, () => {
+        resolve({ nome: file.name, caminho, tipo: file.type || 'application/pdf' });
       });
     });
   });
@@ -409,6 +404,10 @@ async function initForm() {
       setModalState($('#modalAvisoConfirmarCheck').checked);
     });
   }
+
+  $('#rhAccessBtn')?.addEventListener('click', () => {
+    window.location.href = 'rh-login.html';
+  });
 
   $('#modalAvisoContinuar')?.addEventListener('click', () => hideModal());
   $('#modalAvisoCancelar')?.addEventListener('click', () => hideModal());

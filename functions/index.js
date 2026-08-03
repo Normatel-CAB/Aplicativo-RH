@@ -85,7 +85,8 @@ function garantirFirebaseInicializado() {
   const projectIdDetectado = serviceAccount?.project_id ||
     String(process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || "")
         .trim();
-  const bucketPadrao = projectIdDetectado ? `${projectIdDetectado}.appspot.com` : "";
+  const bucketPadrao = projectIdDetectado ?
+    `${projectIdDetectado}.firebasestorage.app` : "";
   firebaseStorageBucket = bucketConfigurado || bucketPadrao;
 
   if (getApps().length === 0) {
@@ -254,58 +255,112 @@ async function obterBodyJson(req) {
   });
 }
 
+function normalizarNomeArquivoStorage(nomeArquivo, indice) {
+  const nomeLimpo = String(nomeArquivo || `arquivo-${indice + 1}.pdf`)
+      .replace(/[\\/:*?"<>|]/g, "")
+      .replace(/\s+/g, " ")
+      .trim() || "arquivo.pdf";
+  return nomeLimpo;
+}
+
+function extrairCaminhoStorageDeUrl(urlArquivo) {
+  if (!urlArquivo || typeof urlArquivo !== "string") return "";
+  const valor = urlArquivo.trim();
+
+  if (valor.startsWith("gs://")) {
+    const partes = valor.slice(5).split("/");
+    if (partes.length >= 2) {
+      return partes.slice(1).join("/");
+    }
+    return "";
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(valor);
+  } catch {
+    return "";
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  const pathname = parsed.pathname || "";
+
+  if (host === "firebasestorage.googleapis.com") {
+    const segmentos = pathname.split("/").filter(Boolean);
+    const indiceO = segmentos.indexOf("o");
+    if (indiceO >= 0 && segmentos.length > indiceO + 1) {
+      return decodeURIComponent(segmentos.slice(indiceO + 1).join("/"));
+    }
+  }
+
+  if (host === "storage.googleapis.com") {
+    const segmentos = pathname.split("/").filter(Boolean);
+    if (segmentos.length >= 2) {
+      return segmentos.slice(1).join("/");
+    }
+  }
+
+  return "";
+}
+
+function validarCaminhoStorage(caminho) {
+  const valor = String(caminho || "").trim();
+  return valor.length > 0 && !valor.includes("..") && !valor.startsWith("/") && !valor.includes("\\");
+}
+
 async function salvarArquivosDoEnvioNoStorage(envioId, arquivosEntrada) {
   if (!Array.isArray(arquivosEntrada) || arquivosEntrada.length === 0) {
     return [];
   }
 
   const bucket = await obterStorageObrigatorio();
-  const urls = [];
+  const arquivos = [];
 
   for (let indice = 0; indice < arquivosEntrada.length; indice += 1) {
     const arquivo = arquivosEntrada[indice];
     if (!arquivo || typeof arquivo !== "object") continue;
 
-    const mimeType = String(arquivo.tipo || "application/pdf");
-    const conteudoBase64 = String(arquivo.conteudoBase64 || "");
-    if (!conteudoBase64) continue;
-
-    let base64 = conteudoBase64;
-    const dataUrlMatch = conteudoBase64.match(/^data:([^;]+);base64,(.+)$/i);
-    if (dataUrlMatch) {
-      base64 = dataUrlMatch[2];
-    }
-
-    const buffer = Buffer.from(base64, "base64");
-    if (!buffer.length) continue;
-
-    const nomeOriginal = String(arquivo.nome || `anexo-${indice + 1}.pdf`)
-        .replace(/[\\/:*?"<>|]/g, "")
-        .replace(/\s+/g, " ")
-        .trim() || "arquivo.pdf";
-
-    const extensao = path.extname(nomeOriginal) || (mimeType.includes("pdf") ? ".pdf" : "");
+    const tipo = String(arquivo.tipo || arquivo.contentType || arquivo.type || "application/pdf").trim() || "application/pdf";
+    const nomeOriginal = normalizarNomeArquivoStorage(arquivo.nome || arquivo.name, indice);
+    const extensao = path.extname(nomeOriginal) || (tipo.includes("pdf") ? ".pdf" : "");
     const nomeBase = path.basename(nomeOriginal, extensao || undefined);
     const nomeFinal = `${envioId}-${indice + 1}-${Date.now()}-${nomeBase}${extensao}`;
-    const caminhoStorage = `envios/${envioId}/${nomeFinal}`;
+    const caminhoPadrao = `envios/${envioId}/${nomeFinal}`;
 
-    const file = bucket.file(caminhoStorage);
-    await file.save(buffer, {
-      resumable: false,
-      metadata: {
-        contentType: mimeType,
-        cacheControl: "private, max-age=0, no-transform",
-      },
-    });
+    const conteudoBase64 = String(arquivo.conteudoBase64 || "").trim();
+    if (conteudoBase64) {
+      let base64 = conteudoBase64;
+      const dataUrlMatch = conteudoBase64.match(/^data:([^;]+);base64,(.+)$/i);
+      if (dataUrlMatch) {
+        base64 = dataUrlMatch[2];
+      }
+      const buffer = Buffer.from(base64, "base64");
+      if (!buffer.length) continue;
+      const file = bucket.file(caminhoPadrao);
+      await file.save(buffer, {
+        resumable: false,
+        metadata: {
+          contentType: tipo,
+          cacheControl: "private, max-age=0, no-transform",
+        },
+      });
+      arquivos.push({ nome: nomeOriginal, caminho: caminhoPadrao, tipo });
+      continue;
+    }
 
-    const [urlAssinada] = await file.getSignedUrl({
-      action: "read",
-      expires: Date.now() + 7 * 24 * 60 * 60 * 1000,
-    });
-    urls.push(urlAssinada);
+    const caminhoInformado = String(arquivo.caminho || arquivo.path || "").trim();
+    const caminhoExtraido = caminhoInformado || extrairCaminhoStorageDeUrl(String(arquivo.url || "").trim());
+    if (validarCaminhoStorage(caminhoExtraido)) {
+      arquivos.push({ nome: nomeOriginal, caminho: caminhoExtraido, tipo });
+      continue;
+    }
+
+    if (arquivo.url && typeof arquivo.url === "string" && arquivo.url.trim()) {
+      arquivos.push({ nome: nomeOriginal, url: arquivo.url.trim(), tipo });
+    }
   }
 
-  return urls;
+  return arquivos;
 }
 
 async function enviarEmailConfirmacao(envio) {
@@ -588,44 +643,31 @@ async function responderApi(req, res) {
       return;
     }
 
-    if (pathname === "/api/envios" && req.method === "GET") {
-      const db = await obterFirestoreObrigatorio();
-      let query = db.collection(FIRESTORE_COLLECTIONS.envios).orderBy("criado_em", "desc");
-      const limitParam = parseInt(req.query.limit, 10);
-      if (limitParam > 0) query = query.limit(limitParam);
-      const snapshot = await query.get();
-
-      const data = snapshot.docs.map((doc) => ({id: doc.id, ...(doc.data() || {})}));
-      res.status(200).json(data);
-      return;
-    }
-
-    if (pathname === "/api/eventos" && req.method === "POST") {
-      const body = await obterBodyJson(req);
-      const acao = normalizarTextoCurto(body.acao, 80);
-      if (!acao) {
-        res.status(400).json({error: "Ação é obrigatória"});
+    if (pathname === "/api/arquivos/signed-url" && req.method === "GET") {
+      const caminhoArquivo = String(req.query.caminho || "").trim();
+      if (!validarCaminhoStorage(caminhoArquivo)) {
+        res.status(400).json({error: "Caminho de Storage inválido."});
         return;
       }
 
-      const novoEvento = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        acao,
-        pagina: normalizarTextoCurto(body.pagina, 120),
-        email: normalizarTextoCurto(body.email, 150),
-        usuario_id: normalizarTextoCurto(body.usuarioId, 80),
-        detalhes: body.detalhes && typeof body.detalhes === "object" ? body.detalhes : {},
-        criado_em: new Date().toISOString(),
-        criado_por_ip: ip,
-        user_agent: normalizarTextoCurto(req.headers["user-agent"] || "", 300),
-      };
+      const bucket = await obterStorageObrigatorio();
+      const file = bucket.file(caminhoArquivo);
+      const [existe] = await file.exists();
+      if (!existe) {
+        res.status(404).json({error: "Arquivo não encontrado."});
+        return;
+      }
 
-      const db = await obterFirestoreObrigatorio();
-      await db.collection(FIRESTORE_COLLECTIONS.eventos)
-          .doc(String(novoEvento.id))
-          .set({...novoEvento, origem_persistencia: "firebase-functions"}, {merge: true});
-
-      res.status(201).json({success: true, id: novoEvento.id});
+      try {
+        const [urlAssinada] = await file.getSignedUrl({
+          action: "read",
+          expires: Date.now() + 7 * 24 * 60 * 60 * 1000,
+        });
+        res.status(200).json({url: urlAssinada, caminho: caminhoArquivo});
+      } catch (erroUrl) {
+        logger.error("Falha ao gerar URL assinada", {caminho: caminhoArquivo, erro: erroUrl.message || erroUrl});
+        res.status(500).json({error: "Falha ao gerar URL de download."});
+      }
       return;
     }
 

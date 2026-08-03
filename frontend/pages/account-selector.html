@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://firebasestorage.googleapis.com; connect-src 'self' https://*.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebasestorage.googleapis.com wss://*.firebaseio.com https://*.cloudfunctions.net https://login.microsoftonline.com https://graph.microsoft.com; frame-src https://login.microsoftonline.com https://normatel-rh.firebaseapp.com; upgrade-insecure-requests">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://firebasestorage.googleapis.com; connect-src 'self' https://www.gstatic.com https://*.gstatic.com https://*.googleapis.com https://www.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebasestorage.googleapis.com https://storage.googleapis.com wss://*.firebaseio.com https://*.cloudfunctions.net https://login.microsoftonline.com https://graph.microsoft.com; frame-src https://login.microsoftonline.com https://normatel-rh.firebaseapp.com; upgrade-insecure-requests">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
     <meta http-equiv="Pragma" content="no-cache" />
@@ -65,8 +65,8 @@
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     <script src="../scripts/firebase-config.js?v=20260305a"></script>
-    <script src="../scripts/msal-config.js"></script>
-    
+    <script src="../scripts/msal-config.js?v=20260803b"></script>
+
     <!-- Script para gerenciar seleção de conta -->
     <script>
         // Initialize MSAL and Firebase
@@ -75,19 +75,9 @@
         let firebaseAuthInstance = null;
         const AUTH_STEP_TIMEOUT_MS = 20000;
         
-        // MSAL Configuration
-        const msalConfig = {
-            auth: {
-                clientId: "89b8bf1d-7f65-466d-81eb-150c26a0b57a",
-                authority: "https://login.microsoftonline.com/6b8311fd-897b-42b3-8ec4-bb68ddf44a01",
-                redirectUri: window.location.origin + window.location.pathname,
-                postLogoutRedirectUri: window.location.origin
-            },
-            cache: {
-                cacheLocation: "localStorage",
-                storeAuthStateInCookie: true
-            }
-        };
+        // MSAL Configuration é fornecida por msal-config.js via window.msalConfig
+        // (não redeclarar aqui para evitar colisão de const no escopo global).
+        console.log('account-selector: msalConfig', window.msalConfig);
         
         function definirMensagem(texto, tipo = 'loading') {
             const el = document.getElementById('statusMessage');
@@ -309,7 +299,7 @@
 
         async function cadastrarNoFirebaseComPopup() {
             if (!msalInstance) throw new Error('MSAL_NOT_READY');
-            const response = await comTimeout(msalInstance.loginPopup(window.loginRequest || loginRequest), 'MSAL_POPUP_CADASTRO');
+            const response = await comTimeout(msalInstance.loginPopup(window.loginRequest || { scopes: ["openid", "profile", "email"] }), 'MSAL_POPUP_CADASTRO');
             const account = response?.account || msalInstance.getActiveAccount() || (msalInstance.getAllAccounts()[0] || null);
             const token = await obterTokenValidoMsal(account, response);
             return { account, token, loginResponse: response };
@@ -382,6 +372,7 @@ if (msalInstance) msalInstance.setActiveAccount(account);
         }
         
         async function fazerLoginMicrosoft(modo = 'login') {
+            console.log('account-selector: fazerLoginMicrosoft called', modo, { msalReady, msalInstance, msalConfig: window.msalConfig });
             let iniciouRedirecionamento = false;
             try {
                 definirMensagem('🔄 Redirecionando para Microsoft...', 'loading');
@@ -408,7 +399,7 @@ if (msalInstance) msalInstance.setActiveAccount(account);
                 }
                 const account = loginResponse.account;
                 const token = await obterTokenValidoMsal(account, loginResponse);
-                const email = (account.username || '').toLowerCase;
+                const email = (account.username || '').toLowerCase();
                 const nome = account.name || account.username;
                 if (msalInstance) msalInstance.setActiveAccount(account);
                 if (!email) throw new Error('Não foi possível identificar o email da conta Microsoft.');
@@ -430,7 +421,7 @@ if (msalInstance) msalInstance.setActiveAccount(account);
                 console.error('❌ Erro no login Microsoft:', error);
                 let mensagemErro = `❌ Erro ao fazer login: ${error.message}`;
                 const erroTexto = `${error.errorCode || ''} ${error.message || ''}`.toLowerCase();
-                if (erroTexto.includes('aadsts50011')) mensagemErro = `❌ Redirect URI não cadastrada no Azure. Cadastre: ${window.location.origin}${window.location.pathname}`;
+                if (erroTexto.includes('aadsts50011')) mensagemErro = `❌ Redirect URI não cadastrada no Azure. Cadastre: ${window.msalConfig?.auth?.redirectUri || ''}`;
                 else if (erroTexto.includes('aadsts9002326')) mensagemErro = '❌ Azure bloqueou login cross-origin. Adicione a plataforma SPA com URI http://localhost:5500/account-selector.html.';
                 else if (erroTexto.includes('application') && erroTexto.includes('not found')) mensagemErro = '❌ App Registration não encontrado. Verifique Client ID e Tenant ID.';
                 else if (erroTexto.includes('invalid_client')) mensagemErro = '❌ Client ID inválido para este App Registration.';
@@ -451,6 +442,16 @@ if (msalInstance) msalInstance.setActiveAccount(account);
             } finally { if (!iniciouRedirecionamento) definirBotoesAuthHabilitados(true); }
         }
         
+        async function aplicarRestricaoCadastroParaAprovado(email) {
+            try {
+                const verificacao = await verificarUsuarioCadastradoComFallback(String(email || '').toLowerCase().trim());
+                if (verificacao?.aprovado) {
+                    const registerBtn = document.getElementById('registerBtn');
+                    if (registerBtn) registerBtn.disabled = true;
+                }
+            } catch (_) { /* silently ignore */ }
+        }
+
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', async () => {
             window.BACKEND_URL = ''; window.FIREBASE_PROJECT_HOST = 'normatel-rh.firebaseapp.com'; window.FIREBASE_API_KEY = 'AIzaSyCWLQteC_iYmUi_0DVEsUb5kCdki5e13bs';
@@ -460,9 +461,10 @@ if (msalInstance) msalInstance.setActiveAccount(account);
             if (typeof firebase !== 'undefined') document.getElementById('registerBtn').disabled = false;
             try {
                 if (typeof msal !== 'undefined') {
-                    msalInstance = new msal.PublicClientApplication(msalConfig);
+                    msalInstance = new msal.PublicClientApplication(window.msalConfig);
                     await msalInstance.initialize();
                     msalReady = true;
+                    console.log('account-selector: msal initialized', msalInstance, msalReady);
                     definirBotoesAuthHabilitados(true); limparMensagem();
                     const processouRetornoMsal = await processarRetornoLoginMicrosoft();
                     if (processouRetornoMsal) return;
@@ -475,6 +477,10 @@ if (msalInstance) msalInstance.setActiveAccount(account);
             const emailAtual = localStorage.getItem('rh_user_email') || '';
             if (emailAtual) await aplicarRestricaoCadastroParaAprovado(emailAtual);
             if (typeof msal !== 'undefined' || typeof firebase !== 'undefined') definirBotoesAuthHabilitados(true);
+            const btnLogin = document.getElementById('loginBtn');
+            const btnRegister = document.getElementById('registerBtn');
+            if (btnLogin) btnLogin.addEventListener('click', () => fazerLoginMicrosoft('login'));
+            if (btnRegister) btnRegister.addEventListener('click', () => fazerLoginMicrosoft('cadastro'));
         });
     </script>
 </body>

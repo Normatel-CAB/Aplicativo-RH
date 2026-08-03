@@ -7,7 +7,7 @@
 
 /* ─── Constantes ────────────────────────────────────────── */
 const RH_PROJETO_CODIGO_KEY      = 'rh_projeto_codigo';
-const DEFAULT_REMOTE_BACKEND_URL = 'https://api-vgqcbmomea-uc.a.run.app';
+const DEFAULT_REMOTE_BACKEND_URL = '';
 const ITENS_POR_PAGINA           = 15;
 
 const CHART_CORES = [

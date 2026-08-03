@@ -201,7 +201,7 @@ function setSecurityHeaders(req, res) {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://firebasestorage.googleapis.com https://storage.googleapis.com; connect-src 'self' https://*.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebasestorage.googleapis.com https://storage.googleapis.com wss://*.firebaseio.com https://*.cloudfunctions.net https://login.microsoftonline.com https://graph.microsoft.com; frame-src https://login.microsoftonline.com https://normatel-rh.firebaseapp.com; upgrade-insecure-requests");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://firebasestorage.googleapis.com https://storage.googleapis.com; connect-src 'self' https://www.gstatic.com https://*.gstatic.com https://*.googleapis.com https://www.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebasestorage.googleapis.com https://storage.googleapis.com wss://*.firebaseio.com https://*.cloudfunctions.net https://login.microsoftonline.com https://graph.microsoft.com; frame-src https://login.microsoftonline.com https://normatel-rh.firebaseapp.com; upgrade-insecure-requests");
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), midi=(), magnetometer=(), gyroscope=(), accelerometer=()');
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
@@ -209,14 +209,16 @@ function setSecurityHeaders(req, res) {
 }
 
 function setCORSHeaders(res, origem) {
-  const origemPermitida = [
+const origemPermitida = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
     'http://localhost:3001',
     'http://127.0.0.1:3001',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
     'https://normatel-rh.web.app',
     'https://seusite.com'
-  ];
+];
 
   // Se não houver cabeçalho Origin, não é uma requisição CORS e pode seguir normalmente.
   if (!origem) {

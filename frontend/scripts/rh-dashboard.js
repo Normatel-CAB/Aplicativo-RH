@@ -217,6 +217,33 @@ function obterNomeArquivoEnviado(arquivo, record, indice, totalArquivos) {
   return montarNomePdfPorRegistro(record, indice, totalArquivos);
 }
 
+function arquivoValidoParaDownload(arquivo) {
+  const url = typeof arquivo?.url === 'string' ? arquivo.url.trim() : '';
+  const caminho = typeof arquivo?.caminho === 'string' ? arquivo.caminho.trim() : '';
+  return (url ? validarUrl(url) : false) || caminho.length > 0;
+}
+
+function construirHrefArquivo(arquivo, nomeExibicao) {
+  const url = typeof arquivo?.url === 'string' ? arquivo.url.trim() : '';
+  const caminho = typeof arquivo?.caminho === 'string' ? arquivo.caminho.trim() : '';
+  if (url && validarUrl(url)) {
+    return montarUrlForcarDownload(url, nomeExibicao);
+  }
+  return '#';
+}
+
+async function obterUrlAssinadaStorage(caminhoStorage) {
+  if (!caminhoStorage) {
+    throw new Error('Caminho de storage inválido.');
+  }
+
+  const backendBase = obterBackendConfigurado();
+  const resposta = await requisicaoBackendJson(`${backendBase}/api/arquivos/signed-url?caminho=${encodeURIComponent(caminhoStorage)}`);
+  if (!resposta || typeof resposta.url !== 'string' || !resposta.url.trim()) {
+    throw new Error('Falha ao obter URL de download.');
+  }
+  return resposta.url.trim();
+}
 
 function montarLinkArquivo(record, urlArquivo) {
   // urlArquivo já é a URL do Firebase Storage
@@ -263,11 +290,15 @@ function ativarDownloadComNome() {
     event.preventDefault();
 
     const raw = link.getAttribute('data-raw-url') || '';
-    const urlArquivo = raw ? decodeURIComponent(raw) : (link.getAttribute('href') || '');
+    const storagePath = link.getAttribute('data-storage-path') || '';
+    let urlArquivo = raw ? decodeURIComponent(raw) : '';
     const nomeCodificado = link.getAttribute('data-download-name') || '';
     const nomeDownload = nomeCodificado ? decodeURIComponent(nomeCodificado) : (link.getAttribute('download') || 'arquivo.pdf');
 
     try {
+      if (!urlArquivo && storagePath) {
+        urlArquivo = await obterUrlAssinadaStorage(decodeURIComponent(storagePath));
+      }
       await baixarArquivoComNome(urlArquivo, nomeDownload);
     } catch {
       setListaStatus('Nao foi possivel iniciar o download deste arquivo.', 'error');
@@ -478,17 +509,22 @@ function criarLinhaRegistro(record) {
   
   if (arquivos.length > 0) {
     arquivos.forEach((arquivo, indice) => {
-      const urlArquivo = arquivo.url || arquivo;
-      if (!validarUrl(urlArquivo)) {
+      const urlArquivo = typeof arquivo?.url === 'string' ? arquivo.url.trim() : '';
+      const caminhoStorage = typeof arquivo?.caminho === 'string' ? arquivo.caminho.trim() : '';
+      if (!urlArquivo && !caminhoStorage) {
         return;
       }
       const nomeExibicao = obterNomeArquivoEnviado(arquivo, record, indice, arquivos.length);
       const link = document.createElement('a');
       link.className = 'download-pdf-link';
-      link.href = montarUrlForcarDownload(urlArquivo, nomeExibicao);
+      link.href = urlArquivo && validarUrl(urlArquivo) ? montarUrlForcarDownload(urlArquivo, nomeExibicao) : '#';
       link.download = nomeExibicao;
       link.setAttribute('data-download-name', encodeURIComponent(nomeExibicao));
-      link.setAttribute('data-raw-url', encodeURIComponent(urlArquivo));
+      if (urlArquivo && validarUrl(urlArquivo)) {
+        link.setAttribute('data-raw-url', encodeURIComponent(urlArquivo));
+      } else if (caminhoStorage) {
+        link.setAttribute('data-storage-path', encodeURIComponent(caminhoStorage));
+      }
 
       const nomeArquivoSpan = document.createElement('span');
       nomeArquivoSpan.className = 'download-file-name';

@@ -11,7 +11,7 @@ const filtroFeitosBtn = document.getElementById('filtroFeitosBtn');
 const filtroExcluidosBtn = document.getElementById('filtroExcluidosBtn');
 const baixarFiltradosBtn = document.getElementById('baixarFiltradosBtn');
 const voltarPainelRhProjetoBtn = document.getElementById('voltarPainelRhProjetoBtn');
-const DEFAULT_REMOTE_BACKEND_URL = 'https://api-vgqcbmomea-uc.a.run.app';
+const DEFAULT_REMOTE_BACKEND_URL = '';
 
 function resolverBackendUrl() {
   const valorConfigurado = String(localStorage.getItem('rh_backend_url') || '').trim();
@@ -571,6 +571,34 @@ function montarUrlForcarDownload(urlArquivo, nomeDownload) {
   }
 }
 
+function arquivoValidoParaDownload(arquivo) {
+  const url = typeof arquivo?.url === 'string' ? arquivo.url.trim() : '';
+  const caminho = typeof arquivo?.caminho === 'string' ? arquivo.caminho.trim() : '';
+  return (url ? validarUrl(url) : false) || caminho.length > 0;
+}
+
+function construirHrefArquivo(arquivo, nomeExibicao) {
+  const url = typeof arquivo?.url === 'string' ? arquivo.url.trim() : '';
+  const caminho = typeof arquivo?.caminho === 'string' ? arquivo.caminho.trim() : '';
+  if (url && validarUrl(url)) {
+    return montarUrlForcarDownload(url, nomeExibicao);
+  }
+  return '#';
+}
+
+async function obterUrlAssinadaStorage(caminhoStorage) {
+  if (!caminhoStorage) {
+    throw new Error('Caminho de storage inválido.');
+  }
+
+  const backendBase = obterBackendConfigurado();
+  const resposta = await requisicaoBackendJson(`${backendBase}/api/arquivos/signed-url?caminho=${encodeURIComponent(caminhoStorage)}`);
+  if (!resposta || typeof resposta.url !== 'string' || !resposta.url.trim()) {
+    throw new Error('Falha ao obter URL de download.');
+  }
+  return resposta.url.trim();
+}
+
 function criarDetalheItem(label, valor) {
   return `<div class="detalhe-item"><span>${label}</span><strong>${valor || '-'}</strong></div>`;
 }
@@ -736,12 +764,22 @@ function criarCardRegistro(record) {
 
   const arquivosHtml = arquivos.length
     ? arquivos
-      .filter((arquivo) => validarUrl(arquivo?.url || arquivo))
+      .filter((arquivo) => arquivoValidoParaDownload(arquivo))
       .map((arquivo, indice) => {
-        const urlArquivo = arquivo?.url || arquivo;
+        const urlArquivo = typeof arquivo?.url === 'string' ? arquivo.url.trim() : '';
+        const caminhoStorage = typeof arquivo?.caminho === 'string' ? arquivo.caminho.trim() : '';
         const nomeExibicao = obterNomeArquivoEnviado(arquivo, record, indice, arquivos.length);
-        const urlDownload = montarUrlForcarDownload(urlArquivo, nomeExibicao);
-        return `<a class="download-pdf-link" href="${urlDownload}" download="${nomeExibicao}" data-download-name="${encodeURIComponent(nomeExibicao)}" data-raw-url="${encodeURIComponent(urlArquivo)}"><span class="download-file-name">${nomeExibicao}</span><span class="download-file-action">Baixar</span></a>`;
+        const urlDownload = urlArquivo && validarUrl(urlArquivo)
+          ? montarUrlForcarDownload(urlArquivo, nomeExibicao)
+          : '#';
+        const dataAttributes = [];
+        dataAttributes.push(`data-download-name="${encodeURIComponent(nomeExibicao)}"`);
+        if (urlArquivo && validarUrl(urlArquivo)) {
+          dataAttributes.push(`data-raw-url="${encodeURIComponent(urlArquivo)}"`);
+        } else if (caminhoStorage) {
+          dataAttributes.push(`data-storage-path="${encodeURIComponent(caminhoStorage)}"`);
+        }
+        return `<a class="download-pdf-link" href="${urlDownload}" download="${nomeExibicao}" ${dataAttributes.join(' ')}><span class="download-file-name">${nomeExibicao}</span><span class="download-file-action">Baixar</span></a>`;
       })
       .join('<br>')
     : '-';
@@ -1351,11 +1389,15 @@ function ativarDownloadComNome() {
 
     event.preventDefault();
     const raw = link.getAttribute('data-raw-url') || '';
-    const urlArquivo = raw ? decodeURIComponent(raw) : (link.getAttribute('href') || '');
+    const storagePath = link.getAttribute('data-storage-path') || '';
+    let urlArquivo = raw ? decodeURIComponent(raw) : '';
     const nomeCodificado = link.getAttribute('data-download-name') || '';
     const nomeDownload = nomeCodificado ? decodeURIComponent(nomeCodificado) : 'arquivo.pdf';
 
     try {
+      if (!urlArquivo && storagePath) {
+        urlArquivo = await obterUrlAssinadaStorage(decodeURIComponent(storagePath));
+      }
       await baixarArquivoComNome(urlArquivo, nomeDownload);
     } catch {
       setDetalhesStatus('Não foi possível iniciar o download deste arquivo.', 'error');

@@ -1,37 +1,310 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Normatel RH</title>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%235fbe4a'/%3E%3Cpath d='M14 34h36v8H14zM14 22h36v8H14z' fill='white'/%3E%3C/svg%3E" />
+  <title>Envio de atestado</title>
   <link rel="stylesheet" href="../styles/styles.css" />
 </head>
 <body>
   <header class="top-header">
     <div class="container header-content">
-      <img src="../assets/logo-normatel.png" alt="Normatel" class="logo-normatel" />
+      <img src="../assets/logo-normatel.png" alt="Normatel Engenharia" class="logo-normatel" />
     </div>
   </header>
 
   <main class="container main-content">
-    <section class="card">
-      <h1>Bem-vindo ao RH - Normatel</h1>
-      <p>Use os botões abaixo para navegar.</p>
-      <div class="links">
-        <a class="btn" href="rh-login.html">Login RH</a>
-        <a class="btn" href="formulario.html">Enviar Atestado</a>
-      </div>
+    <section class="page-head">
+      <h1>Envio de atestado</h1>
+      <p class="page-subtitle">Preencha os dados abaixo para encaminhar o atestado ao RH.</p>
     </section>
+
+    <section class="auth-access">
+      <button type="button" id="rhAccessBtn" class="rh-access-btn">RH</button>
+    </section>
+
+    <section id="projectGateCard" class="card project-gate-card">
+      <h2>Selecione o Projeto</h2>
+      <p class="page-subtitle">Escolha o projeto para liberar o formulario. Depois de escolhido, o campo Projeto ficara bloqueado.</p>
+      <label class="project-filter-wrap" for="gateProjetoFiltro">
+        Buscar projeto
+        <input type="text" id="gateProjetoFiltro" placeholder="Digite numero ou nome da base" autocomplete="off" />
+      </label>
+      <p id="gateProjetoFiltroInfo" class="project-filter-info">Mostrando todos os projetos.</p>
+
+      <!-- container dinâmico — populado por JavaScript -->
+      <div id="gateProjetosCards" class="projetos-cards project-gate-cards" aria-label="Selecionar projeto">
+        <!-- skeletons de carregamento -->
+        <div class="projeto-card-skeleton" aria-hidden="true"></div>
+        <div class="projeto-card-skeleton" aria-hidden="true"></div>
+        <div class="projeto-card-skeleton" aria-hidden="true"></div>
+        <div class="projeto-card-skeleton" aria-hidden="true"></div>
+        <div class="projeto-card-skeleton" aria-hidden="true"></div>
+      </div>
+
+      <button type="button" id="gateContinuarBtn" class="gate-continuar-btn" disabled>Continuar</button>
+
+      <select id="gateProjeto" class="hidden" aria-hidden="true" tabindex="-1">
+        <option value="">Selecione um projeto</option>
+      </select>
+      <p id="projectGateInfo" class="status-message status-message--info status-toast">Selecione o projeto para continuar.</p>
+    </section>
+
+    <form id="rh-form" class="card hidden" novalidate>
+      <div class="grid">
+        <label>
+          Nome
+          <input type="text" id="nome" name="nome" required />
+        </label>
+
+        <label>
+          Função
+          <input type="text" id="funcao" name="funcao" required />
+        </label>
+
+        <label>
+          Projeto
+          <select id="projeto" name="projeto" required>
+            <option value="">Selecione um projeto</option>
+            <option value="Projeto 736 - Base Imbetiba">Projeto 736 - Base Imbetiba</option>
+            <option value="Projeto 737 - Base Imboassica">Projeto 737 - Base Imboassica</option>
+            <option value="Projeto 743 - Base Cabiunas">Projeto 743 - Base Cabiunas</option>
+            <option value="Projeto 743 - Severina">Projeto 743 - Severina</option>
+            <option value="Projeto 743 - Barra do Furado">Projeto 743 - Barra do Furado</option>
+            <option value="Projeto 741 - Base UTE">Projeto 741 - Base UTE</option>
+            <option value="Projeto 741 - Base Áreas Externa">Projeto 741 - Base Áreas Externa</option>
+            <option value="Projeto 741 - Base Tapera">Projeto 741 - Base Tapera</option>
+            <option value="Apoio Macae">Apoio Macae</option>
+          </select>
+        </label>
+
+        <label>
+          Tipo de atestado
+          <select id="tipoAtestado" name="tipoAtestado" required>
+            <option value="">Selecione um tipo</option>
+            <option value="Odontológico">Odontológico</option>
+            <option value="Licença maternidade">Licença maternidade</option>
+            <option value="Atestado médico">Atestado médico</option>
+            <option value="Declaração">Declaração</option>
+            <option value="Atestado de Óbito">Atestado de Óbito</option>
+          </select>
+        </label>
+
+        <label id="grauParentescoWrapper" class="hidden">
+          Grau de Parentesco
+          <select id="grauParentesco" name="grauParentesco">
+            <option value="">Selecione o grau de parentesco</option>
+            <option value="Esposa">Esposa</option>
+            <option value="Marido">Marido</option>
+            <option value="Bisavós">Bisavós</option>
+            <option value="Avós">Avós</option>
+            <option value="Pais">Pais</option>
+            <option value="Filhos">Filhos</option>
+            <option value="Netos">Netos</option>
+            <option value="Bisnetos">Bisnetos</option>
+            <option value="Irmãos">Irmãos</option>
+          </select>
+        </label>
+
+        <label id="horasComparecimentoWrapper" class="hidden">
+          Horas de comparecimento
+          <input type="number" id="horasComparecimento" name="horasComparecimento" min="1" step="1" />
+        </label>
+
+        <label>
+          Data de início
+          <input type="text" id="dataInicio" name="dataInicio" inputmode="numeric" placeholder="DD/MM/AAAA" pattern="^\d{2}/\d{2}/\d{4}$" maxlength="10" required />
+        </label>
+
+        <label>
+          Data de fim
+          <input type="text" id="dataFim" name="dataFim" inputmode="numeric" placeholder="DD/MM/AAAA" pattern="^\d{2}/\d{2}/\d{4}$" maxlength="10" readonly required />
+        </label>
+
+        <label id="diasWrapper">
+          Dias
+          <input type="number" id="dias" name="dias" min="1" step="1" required />
+        </label>
+
+        <label class="full-width file-upload-group">
+          Enviar arquivo(s)
+          <input type="file" id="arquivos" name="arquivos" class="file-upload-control" multiple required />
+          <small class="upload-help">Anexe um ou mais arquivos (PDF, imagem ou documento).</small>
+        </label>
+      </div>
+
+      <button type="submit">Enviar</button>
+      <p id="mensagem" class="status-message status-message--info status-toast" role="status" aria-live="polite"></p>
+      <div id="uploadProgressWrapper" class="hidden upload-progress-wrapper" aria-live="polite">
+        <small id="uploadProgressLabel" class="upload-progress-label">Carregando</small>
+        <progress id="uploadProgressBar" max="100" value="0"></progress>
+        <small id="uploadProgressText" class="upload-progress-text">0%</small>
+      </div>
+    </form>
   </main>
 
-  <!-- Firebase compat scripts (necessários para firebase-config.js) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <!-- Firebase CDN compat -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+  <script>
+    (function () {
+      function normalizarProjeto(valor) {
+        return String(valor || '').trim();
+      }
 
-  <!-- configuração local do Firebase (não expor chaves em produção) -->
-  <script src="../scripts/firebase-config.js?v=1"></script>
-  <script src="../scripts/script.js?v=20260305a"></script>
+      window.__gateFallbackSelectProjeto = function (valorProjeto) {
+        var valor = normalizarProjeto(valorProjeto);
+        if (!valor) return;
+        localStorage.setItem('rh_projeto_preselecionado', valor);
+        window.location.href = 'formulario.html?projeto=' + encodeURIComponent(valor);
+      };
+    })();
+  </script>
+  <script src="../scripts/firebase-config.js?v=20260226b"></script>
+  <script src="../scripts/script.js?v=20260309v"></script>
+  <script>
+  // Carregamento dinâmico de projetos do Firestore
+  (function () {
+    'use strict';
+
+    var PROJETOS_PADRAO = [
+      { valor: 'Projeto 736 - Base Imbetiba',    codigo: '736', titulo: 'Projeto 736', subtitulo: 'Base Imbetiba' },
+      { valor: 'Projeto 737 - Base Imboassica',   codigo: '737', titulo: 'Projeto 737', subtitulo: 'Base Imboassica' },
+      { valor: 'Projeto 743 - Base Cabiunas',     codigo: '743', titulo: 'Projeto 743', subtitulo: 'Base Cabiunas' },
+      { valor: 'Projeto 743 - Severina',          codigo: '743', titulo: 'Projeto 743', subtitulo: 'Severina' },
+      { valor: 'Projeto 743 - Barra do Furado',   codigo: '743', titulo: 'Projeto 743', subtitulo: 'Barra do Furado' },
+      { valor: 'Projeto 741 - Base UTE',          codigo: '741', titulo: 'Projeto 741', subtitulo: 'Base UTE' },
+      { valor: 'Projeto 741 - Base Áreas Externa',codigo: '741', titulo: 'Projeto 741', subtitulo: 'Base Áreas Externa' },
+      { valor: 'Projeto 741 - Base Tapera',       codigo: '741', titulo: 'Projeto 741', subtitulo: 'Base Tapera' },
+      { valor: 'Apoio Macae',                     codigo: '744', titulo: 'Apoio Macaé', subtitulo: 'Base de apoio' }
+    ];
+
+    function projetoParaValorFormulario(p) {
+      if (p.codigo && p.base) return 'Projeto ' + p.codigo + ' - ' + p.base;
+      if (p.codigo) return 'Projeto ' + p.codigo + ' - ' + p.nome;
+      return p.nome || '';
+    }
+
+    function renderizarCards(lista) {
+      var container    = document.getElementById('gateProjetosCards');
+      var selectGate   = document.getElementById('gateProjeto');
+      var selectForm   = document.getElementById('projeto');
+      if (!container) return;
+
+      container.innerHTML = '';
+
+      // limpa selects dinâmicos (mantém option vazia)
+      if (selectGate) { while (selectGate.options.length > 1) selectGate.remove(1); }
+
+      // coleta valores já presentes no select do formulário para não duplicar
+      var valoresFormExistentes = selectForm
+        ? Array.from(selectForm.options).map(function (o) { return o.value; })
+        : [];
+
+      lista.forEach(function (p) {
+        var valor     = p.valor || projetoParaValorFormulario(p);
+        var titulo    = p.titulo    || (p.codigo ? 'Projeto ' + p.codigo : p.nome) || '';
+        var subtitulo = p.subtitulo || p.base || p.nome || '';
+
+        // card clicável
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'projeto-card gate-projeto-card';
+        btn.setAttribute('data-projeto', valor);
+        btn.onclick = function () {
+          if (window.__gateFallbackSelectProjeto) window.__gateFallbackSelectProjeto(valor);
+        };
+        var strong = document.createElement('strong');
+        strong.textContent = titulo;
+        var span = document.createElement('span');
+        span.textContent = subtitulo;
+        btn.appendChild(strong);
+        btn.appendChild(span);
+        container.appendChild(btn);
+
+        // option no select oculto do gate
+        if (selectGate) {
+          var optG = document.createElement('option');
+          optG.value = valor;
+          optG.textContent = valor;
+          selectGate.appendChild(optG);
+        }
+
+        // option no select do formulário (necessário para bloquearCampoProjeto)
+        if (selectForm && valoresFormExistentes.indexOf(valor) === -1) {
+          var optF = document.createElement('option');
+          optF.value = valor;
+          optF.textContent = valor;
+          selectForm.appendChild(optF);
+          valoresFormExistentes.push(valor);
+        }
+      });
+
+      // dispara evento para que script.js aplique filtros existentes
+      document.dispatchEvent(new CustomEvent('projetos-carregados'));
+    }
+
+    function carregarDoFirestore() {
+      if (typeof window.firebase === 'undefined' || typeof window.firebase.firestore !== 'function') {
+        renderizarCards(PROJETOS_PADRAO);
+        return;
+      }
+
+      try {
+        window.firebase.firestore()
+          .collection('projetos')
+          .orderBy('criado_em', 'desc')
+          .onSnapshot(
+            function (snap) {
+              var projetos = snap.docs
+                .map(function (d) { return Object.assign({ id: d.id }, d.data()); })
+                .filter(function (p) { return !p.excluido && p.status !== 'inativo'; });
+
+              // Sempre mostra os padrões + os novos criados pelo RH
+            var dinamicos = projetos.map(function (p) {
+              return {
+                valor: (p.codigo ? 'Projeto ' + p.codigo + ' - ' + (p.base || p.nome) : p.nome),
+                codigo: p.codigo || '',
+                titulo: p.codigo ? 'Projeto ' + p.codigo : p.nome,
+                subtitulo: p.base || p.nome || ''
+              };
+            });
+            renderizarCards(PROJETOS_PADRAO.concat(dinamicos));
+            },
+            function () {
+              renderizarCards(PROJETOS_PADRAO);
+            }
+          );
+      } catch (e) {
+        renderizarCards(PROJETOS_PADRAO);
+      }
+    }
+
+    // aguarda Firebase inicializar antes de consultar
+    function aguardarFirebase(tentativas) {
+      if (tentativas <= 0) { renderizarCards(PROJETOS_PADRAO); return; }
+      if (typeof window.firebase !== 'undefined' && typeof window.firebase.firestore === 'function') {
+        carregarDoFirestore();
+      } else {
+        setTimeout(function () { aguardarFirebase(tentativas - 1); }, 200);
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function () { aguardarFirebase(15); });
+    } else {
+      aguardarFirebase(15);
+    }
+  })();
+  </script>
 </body>
 </html>
+
