@@ -223,32 +223,34 @@ function montarLinkArquivo(record, urlArquivo) {
   return urlArquivo;
 }
 
-async function baixarArquivoComNome(urlArquivo, nomeDownload) {
-  const urlDownload = montarUrlForcarDownload(urlArquivo, nomeDownload);
+function dispararDownloadLink(href, nomeDownload) {
   const linkTemporario = document.createElement('a');
-  linkTemporario.href = urlDownload;
+  linkTemporario.href = href;
   linkTemporario.download = nomeDownload;
+  linkTemporario.rel = 'noopener';
   document.body.appendChild(linkTemporario);
   linkTemporario.click();
   linkTemporario.remove();
 }
 
-async function garantirMetadataDownload(urlArquivo, nomeDownload) {
-  if (!window.storage || typeof window.storage.refFromURL !== 'function') {
-    return urlArquivo;
-  }
-
+async function baixarArquivoComNome(urlArquivo, nomeDownload) {
+  const nomeSeguro = sanitizarNomeArquivoDownload(nomeDownload);
+  // Tenta baixar como blob (requer CORS). Falhando, usa URL direta com token
+  // sem adicionar params response-content-* que invalidam a autorização e
+  // causam 403 no endpoint firebasestorage.googleapis.com.
   try {
-    const ref = window.storage.refFromURL(urlArquivo);
-    const nomeSeguro = sanitizarNomeArquivoDownload(nomeDownload);
-    await ref.updateMetadata({
-      contentDisposition: `attachment; filename="${nomeSeguro}"`,
-      contentType: 'application/pdf'
-    });
-    return await ref.getDownloadURL();
+    const resposta = await fetch(urlArquivo, { credentials: 'omit' });
+    if (resposta.ok) {
+      const blob = await resposta.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      dispararDownloadLink(objectUrl, nomeSeguro);
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
+      return;
+    }
   } catch {
-    return urlArquivo;
+    // Sem CORS: cai para navegação direta.
   }
+  dispararDownloadLink(montarUrlForcarDownload(urlArquivo, nomeSeguro), nomeSeguro);
 }
 
 function ativarDownloadComNome() {
@@ -266,8 +268,7 @@ function ativarDownloadComNome() {
     const nomeDownload = nomeCodificado ? decodeURIComponent(nomeCodificado) : (link.getAttribute('download') || 'arquivo.pdf');
 
     try {
-      const urlComMetadata = await garantirMetadataDownload(urlArquivo, nomeDownload);
-      await baixarArquivoComNome(urlComMetadata, nomeDownload);
+      await baixarArquivoComNome(urlArquivo, nomeDownload);
     } catch {
       setListaStatus('Nao foi possivel iniciar o download deste arquivo.', 'error');
     }
@@ -304,6 +305,10 @@ function sanitizarNomeArquivoDownload(nome) {
 function montarUrlForcarDownload(urlArquivo, nomeDownload) {
   try {
     const parsed = new URL(urlArquivo);
+    const host = String(parsed.hostname || '').toLowerCase();
+    if (host.includes('firebasestorage.googleapis.com')) {
+      return urlArquivo;
+    }
     const nomeSeguro = sanitizarNomeArquivoDownload(nomeDownload);
     parsed.searchParams.set('response-content-disposition', `attachment; filename="${nomeSeguro}"`);
     parsed.searchParams.set('response-content-type', 'application/octet-stream');

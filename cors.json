@@ -1,0 +1,14 @@
+[
+  {
+    "origin": [
+      "https://normatel-rh.web.app",
+      "https://normatel-rh.firebaseapp.com",
+      "http://localhost:5000",
+      "http://localhost:3000",
+      "http://127.0.0.1:5000"
+    ],
+    "method": ["GET", "HEAD"],
+    "responseHeader": ["Content-Type", "Content-Disposition"],
+    "maxAgeSeconds": 3600
+  }
+]
