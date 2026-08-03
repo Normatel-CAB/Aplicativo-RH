@@ -407,16 +407,40 @@ if (msalInstance) msalInstance.setActiveAccount(account);
                 }
                 if (!msalInstance || !msalReady) { definirMensagem('❌ MSAL.js não carregou. Atualize a página.', 'error'); definirBotoesAuthHabilitados(true); return; }
                 const request = window.loginRequest || { scopes: ["openid", "profile", "email"] };
-                // Fluxo de login = REDIRECT PURO na mesma aba. Sem loginPopup,
-                // sem window.open, sem fallback que reabria janela (causa do loop
-                // de páginas). A Microsoft redireciona de volta para redirectUri e
-                // o retorno é finalizado em processarRetornoLoginMicrosoft() no
-                // load da página, via handleRedirectPromise() — sem novo clique.
-                sessionStorage.setItem('msal_pending_login', '1');
-                sessionStorage.setItem('msal_pending_mode', 'login');
-                definirMensagem('🔄 Redirecionando para o login da Microsoft...', 'loading');
+                let loginResponse;
+                try { loginResponse = await comTimeout(msalInstance.loginPopup(request), 'MSAL_POPUP_LOGIN'); } catch (erroPopupMsal) {
+                    if (deveUsarRedirectNoMsal(erroPopupMsal)) {
+                        // Fallback correto: redirect de verdade NA MESMA ABA via
+                        // MSAL (troca window.location internamente). NÃO usa
+                        // window.open — abrir nova janela era o que causava o loop.
+                        sessionStorage.setItem('msal_pending_login', '1');
+                        sessionStorage.setItem('msal_pending_mode', modo);
+                        definirMensagem('🔄 Redirecionando para o login da Microsoft (popup bloqueado)...', 'loading');
+                        iniciouRedirecionamento = true;
+                        await msalInstance.loginRedirect(request);
+                        return;
+                    }
+                    throw erroPopupMsal;
+                }
+                const account = loginResponse.account;
+                const token = await obterTokenValidoMsal(account, loginResponse);
+                const email = (account.username || '').toLowerCase();
+                const nome = account.name || account.username;
+                if (msalInstance) msalInstance.setActiveAccount(account);
+                if (!email) throw new Error('Não foi possível identificar o email da conta Microsoft.');
+                if (!token) throw new Error('MSAL_TOKEN_MISSING');
+                if (msalInstance) msalInstance.setActiveAccount(account);
+                if (modo === 'login') {
+                    await ativarFirebaseAuthComTokenMsal(loginResponse);
+                    await sincronizarRoleParaLocalStorage(email);
+                    const verificacao = await comTimeout(verificarUsuarioCadastradoComFallback(email), 'VERIFICACAO_USUARIO', 12000);
+                    if (!verificacao.existe) { definirMensagem('⚠️ Primeiro acesso detectado. Clique em "Cadastrar com Microsoft" para continuar.', 'error'); definirBotoesAuthHabilitados(true); return; }
+                    if (!verificacao.aprovado) { marcarCadastroPendente(email, nome); definirMensagem('⏳ Seu cadastro ainda está pendente de aprovação.', 'loading'); definirBotoesAuthHabilitados(true); return; }
+                    definirMensagem(`✅ Login bem-sucedido como ${nome}`, 'success');
+                }
+                salvarSessao(account, token, 'login_microsoft');
+                setTimeout(() => { window.location.href = REDIRECT_AFTER_LOGIN; localStorage.removeItem('rh_redirect_after_login'); }, 1500);
                 iniciouRedirecionamento = true;
-                await msalInstance.loginRedirect(request);
                 return;
             } catch (error) {
                 if (String(error?.message || '').includes('FIREBASE_REDIRECT_STARTED')) { iniciouRedirecionamento = true; return; }
