@@ -7,7 +7,11 @@
 
 /* ─── Constantes ────────────────────────────────────────── */
 const RH_PROJETO_CODIGO_KEY      = 'rh_projeto_codigo';
-const DEFAULT_REMOTE_BACKEND_URL = '';
+// URL padrão do backend (Cloud Functions Gen2 / Cloud Run, projeto normatel-rh,
+// southamerica-east1). Fallback usado quando não há rh_backend_url no
+// localStorage nem window.__RH_BACKEND_URL__. Faz o site funcionar sem config
+// manual no navegador. Fonte canônica deste valor para todos os scripts.
+const DEFAULT_REMOTE_BACKEND_URL = 'https://api-vgqcbmomea-rj.a.run.app';
 const ITENS_POR_PAGINA           = 15;
 
 const CHART_CORES = [

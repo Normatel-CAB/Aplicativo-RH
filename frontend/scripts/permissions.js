@@ -83,7 +83,8 @@
     var host = String(window.location.hostname || '').toLowerCase();
     if (host === 'localhost' || host === '127.0.0.1') { return 'http://localhost:3001'; }
     if (window.__RH_BACKEND_URL__) { return String(window.__RH_BACKEND_URL__).trim().replace(/\/+$/, ''); }
-    return '';
+    // Backend Cloud Functions Gen2 / Cloud Run (normatel-rh, southamerica-east1).
+    return 'https://api-vgqcbmomea-rj.a.run.app';
   }
 
   // Sincroniza o cargo a partir da API (token AAD validado no servidor).

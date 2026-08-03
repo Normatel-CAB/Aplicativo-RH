@@ -276,7 +276,9 @@
             if (['localhost', '127.0.0.1'].includes(window.location.hostname)) {
                 return 'http://localhost:3001';
             }
-            return window.location.origin;
+            // Backend Cloud Functions Gen2 / Cloud Run (normatel-rh,
+            // southamerica-east1). Faz o login funcionar sem config manual.
+            return 'https://api-vgqcbmomea-rj.a.run.app';
         }
 
         window.BACKEND_URL = window.BACKEND_URL || resolverBackendUrl();
@@ -476,7 +478,11 @@ if (msalInstance) msalInstance.setActiveAccount(account);
 
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', async () => {
-            window.BACKEND_URL = ''; window.FIREBASE_PROJECT_HOST = 'normatel-rh.firebaseapp.com'; window.FIREBASE_API_KEY = 'AIzaSyCWLQteC_iYmUi_0DVEsUb5kCdki5e13bs';
+            // NÃO zerar window.BACKEND_URL aqui: isso anulava o resolverBackendUrl()
+            // acima e disparava "BACKEND_URL_NOT_CONFIGURED" ("Backend não configurado")
+            // no login. Mantém o valor já resolvido (localStorage > Cloud Run padrão).
+            window.BACKEND_URL = window.BACKEND_URL || resolverBackendUrl();
+            window.FIREBASE_PROJECT_HOST = 'normatel-rh.firebaseapp.com'; window.FIREBASE_API_KEY = 'AIzaSyCWLQteC_iYmUi_0DVEsUb5kCdki5e13bs';
             registrarEventoBackend('acesso_pagina');
             sessionStorage.removeItem('rh_firebase_pending_login_check'); sessionStorage.removeItem('rh_firebase_pending_register');
             definirBotoesAuthHabilitados(false);
