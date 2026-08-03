@@ -2,7 +2,10 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://apis.google.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://firebasestorage.googleapis.com; connect-src 'self' https://www.gstatic.com https://*.gstatic.com https://*.googleapis.com https://www.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebasestorage.googleapis.com https://storage.googleapis.com wss://*.firebaseio.com https://*.cloudfunctions.net https://login.microsoftonline.com https://graph.microsoft.com; frame-src https://login.microsoftonline.com https://normatel-rh.firebaseapp.com https://apis.google.com; upgrade-insecure-requests">
+    <!-- CSP centralizada nos headers do host (vercel.json / firebase.json).
+         Mantida apenas a diretiva upgrade-insecure-requests, igual às demais
+         páginas, para evitar políticas divergentes duplicadas por página. -->
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
     <meta http-equiv="Pragma" content="no-cache" />
@@ -24,7 +27,7 @@
             <p class="page-subtitle">Entre com sua conta Microsoft para acessar os atestados e declarações.</p>
             
             <div class="account-button-group">
-                <button id="loginBtn" class="microsoft-login-btn login-main-btn ms-auth-btn ms-auth-btn-primary" onclick="fazerLoginMicrosoft('login')">
+                <button id="loginBtn" class="microsoft-login-btn login-main-btn ms-auth-btn ms-auth-btn-primary">
                     <span class="ms-icon">
                         <span class="ms-sq ms-red"></span>
                         <span class="ms-sq ms-green"></span>
@@ -36,7 +39,7 @@
                 
                 <p class="login-register-text">Não é cadastrado?</p>
                 
-                <button id="registerBtn" class="rh-access-btn login-main-btn ms-auth-btn ms-auth-btn-secondary" onclick="fazerLoginMicrosoft('cadastro')">
+                <button id="registerBtn" class="rh-access-btn login-main-btn ms-auth-btn ms-auth-btn-secondary">
                     <span class="ms-icon">
                         <span class="ms-sq ms-red"></span>
                         <span class="ms-sq ms-green"></span>
@@ -371,8 +374,18 @@ if (msalInstance) msalInstance.setActiveAccount(account);
             return true;
         }
         
+        // Guarda de reentrada: impede disparar uma segunda interação MSAL
+        // enquanto a primeira (popup/redirect) ainda está aberta. Sem isso, um
+        // segundo clique/chamada lança BrowserAuthError: interaction_in_progress.
+        let interacaoMsalEmAndamento = false;
+
         async function fazerLoginMicrosoft(modo = 'login') {
             console.log('account-selector: fazerLoginMicrosoft called', modo, { msalReady, msalInstance, msalConfig: window.msalConfig });
+            if (interacaoMsalEmAndamento) {
+                console.warn('account-selector: interação MSAL já em andamento — clique ignorado.');
+                return;
+            }
+            interacaoMsalEmAndamento = true;
             let iniciouRedirecionamento = false;
             try {
                 definirMensagem('🔄 Redirecionando para Microsoft...', 'loading');
@@ -436,10 +449,19 @@ if (msalInstance) msalInstance.setActiveAccount(account);
                 else if (erroTexto.includes('msal_token_missing')) mensagemErro = '❌ A Microsoft autenticou, mas não retornou token. Tente novamente e permita cookies/pop-up.';
                 else if (erroTexto.includes('firestore_permission_denied_login_check')) mensagemErro = '❌ Login Microsoft concluído, mas o Firestore negou a leitura de usuarios_rh. Publique as regras no Firebase Console.';
                 else if (erroTexto.includes('firebase_popup_blocked_register')) mensagemErro = '❌ O navegador bloqueou o popup de cadastro. Permita pop-ups e tente novamente.';
+                else if (erroTexto.includes('interaction_in_progress')) mensagemErro = '❌ Havia um login em andamento. Aguarde um instante e tente novamente.';
                 else mensagemErro = `❌ Erro ao fazer login: ${error.message}`;
                 definirMensagem(mensagemErro, 'error');
                 definirBotoesAuthHabilitados(true);
-            } finally { if (!iniciouRedirecionamento) definirBotoesAuthHabilitados(true); }
+            } finally {
+                // Só libera a guarda quando NÃO iniciou redirect. No redirect a
+                // página recarrega e a flag é reinicializada naturalmente; liberar
+                // aqui reabriria a janela para uma segunda interação em conflito.
+                if (!iniciouRedirecionamento) {
+                    interacaoMsalEmAndamento = false;
+                    definirBotoesAuthHabilitados(true);
+                }
+            }
         }
         
         async function aplicarRestricaoCadastroParaAprovado(email) {

@@ -1434,8 +1434,20 @@ function ativarDownloadComNome() {
       if (storagePath) {
         urlArquivo = await obterUrlAssinadaStorage(decodeURIComponent(storagePath));
       }
+      if (!urlArquivo) {
+        throw new Error('Arquivo sem URL nem caminho de Storage (data-raw-url e data-storage-path vazios).');
+      }
       await baixarArquivoComNome(urlArquivo, nomeDownload);
-    } catch {
+    } catch (erroDownload) {
+      // Log detalhado para diagnosticar a causa raiz (URL inválida/expirada,
+      // permissão do Storage, backend indisponível ou atributos vazios).
+      console.error('[download] Falha ao baixar arquivo:', {
+        storagePath: storagePath || '(vazio)',
+        rawUrl: raw ? decodeURIComponent(raw) : '(vazio)',
+        urlResolvida: urlArquivo || '(vazio)',
+        nomeDownload,
+        erro: erroDownload?.message || String(erroDownload),
+      });
       setDetalhesStatus('Não foi possível iniciar o download deste arquivo.', 'error');
     }
   });
