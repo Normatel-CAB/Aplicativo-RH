@@ -694,7 +694,8 @@ async function responderApi(req, res) {
         const contentType = metadata.contentType || "application/pdf";
         const nomeBase = sanitizarNomeArquivoProxy(caminhoArquivo.split("/").pop());
         res.setHeader("Content-Type", contentType);
-        res.setHeader("Content-Disposition", `inline; filename="${nomeBase}"`);
+        // attachment (não inline): força download em vez de abrir no browser.
+        res.setHeader("Content-Disposition", `attachment; filename="${nomeBase}"`);
         res.setHeader("Cache-Control", "private, max-age=0, no-store");
         if (metadata.size) res.setHeader("Content-Length", metadata.size);
 
