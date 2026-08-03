@@ -38,6 +38,13 @@ function resolverBackendUrl() {
 
 const BACKEND_URL = resolverBackendUrl();
 
+// Wrapper usado pelas chamadas de API/Storage. Estava definido em
+// rh-dashboard.js e rh-demandas.js, mas faltava aqui — causava
+// "obterBackendConfigurado is not defined" no download e no /api/usuarios/me.
+function obterBackendConfigurado() {
+  return BACKEND_URL;
+}
+
 const BASES_PROJETO = {
   '736': 'Base Imbetiba',
   '737': 'Base Imboassica',
