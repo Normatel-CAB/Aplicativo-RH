@@ -232,6 +232,29 @@ function construirHrefArquivo(arquivo, nomeExibicao) {
   return '#';
 }
 
+// Extrai o caminho do objeto (ex: envios/ID/arquivo.pdf) a partir de uma URL
+// pública do Firebase/GCS. Usado para gerar signed URL via backend em vez de
+// tentar a URL pública direta (que retorna 403 quando não há token de download).
+function extrairCaminhoStorageDeUrlFront(urlArquivo) {
+  try {
+    const parsed = new URL(String(urlArquivo || ''));
+    const host = String(parsed.hostname || '').toLowerCase();
+    const segmentos = parsed.pathname.split('/').filter(Boolean);
+    if (host === 'firebasestorage.googleapis.com') {
+      const indiceO = segmentos.indexOf('o');
+      if (indiceO >= 0 && segmentos.length > indiceO + 1) {
+        return decodeURIComponent(segmentos.slice(indiceO + 1).join('/'));
+      }
+    }
+    if (host === 'storage.googleapis.com' && segmentos.length >= 2) {
+      return decodeURIComponent(segmentos.slice(1).join('/'));
+    }
+  } catch {
+    // ignora URL inválida
+  }
+  return '';
+}
+
 async function obterUrlAssinadaStorage(caminhoStorage) {
   if (!caminhoStorage) {
     throw new Error('Caminho de storage inválido.');
@@ -296,7 +319,9 @@ function ativarDownloadComNome() {
     const nomeDownload = nomeCodificado ? decodeURIComponent(nomeCodificado) : (link.getAttribute('download') || 'arquivo.pdf');
 
     try {
-      if (!urlArquivo && storagePath) {
+      // Se há caminho de Storage, sempre gera signed URL (opção B). A URL
+      // pública direta só é usada como último recurso quando não há caminho.
+      if (storagePath) {
         urlArquivo = await obterUrlAssinadaStorage(decodeURIComponent(storagePath));
       }
       await baixarArquivoComNome(urlArquivo, nomeDownload);
@@ -510,20 +535,27 @@ function criarLinhaRegistro(record) {
   if (arquivos.length > 0) {
     arquivos.forEach((arquivo, indice) => {
       const urlArquivo = typeof arquivo?.url === 'string' ? arquivo.url.trim() : '';
-      const caminhoStorage = typeof arquivo?.caminho === 'string' ? arquivo.caminho.trim() : '';
+      // Prioriza o caminho do Storage (signed URL via backend). Se só houver
+      // URL pública do Firebase/GCS, deriva o caminho dela — a URL pública
+      // direta retorna 403 quando o objeto não tem token de download.
+      const caminhoStorage = (typeof arquivo?.caminho === 'string' && arquivo.caminho.trim())
+        ? arquivo.caminho.trim()
+        : extrairCaminhoStorageDeUrlFront(urlArquivo);
       if (!urlArquivo && !caminhoStorage) {
         return;
       }
       const nomeExibicao = obterNomeArquivoEnviado(arquivo, record, indice, arquivos.length);
       const link = document.createElement('a');
       link.className = 'download-pdf-link';
-      link.href = urlArquivo && validarUrl(urlArquivo) ? montarUrlForcarDownload(urlArquivo, nomeExibicao) : '#';
+      // href="#" é intencional: o download real passa pelo handler de clique
+      // (ativarDownloadComNome), que gera a signed URL sob demanda.
+      link.href = '#';
       link.download = nomeExibicao;
       link.setAttribute('data-download-name', encodeURIComponent(nomeExibicao));
-      if (urlArquivo && validarUrl(urlArquivo)) {
-        link.setAttribute('data-raw-url', encodeURIComponent(urlArquivo));
-      } else if (caminhoStorage) {
+      if (caminhoStorage) {
         link.setAttribute('data-storage-path', encodeURIComponent(caminhoStorage));
+      } else if (urlArquivo && validarUrl(urlArquivo)) {
+        link.setAttribute('data-raw-url', encodeURIComponent(urlArquivo));
       }
 
       const nomeArquivoSpan = document.createElement('span');
