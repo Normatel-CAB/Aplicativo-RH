@@ -296,9 +296,9 @@ function dispararDownloadLink(href, nomeDownload) {
 
 async function baixarArquivoComNome(urlArquivo, nomeDownload) {
   const nomeSeguro = sanitizarNomeArquivoDownload(nomeDownload);
-  // Tenta baixar como blob (requer CORS). Falhando, usa URL direta com token
-  // sem adicionar params response-content-* que invalidam a autorização e
-  // causam 403 no endpoint firebasestorage.googleapis.com.
+  // Download via blob local: baixa direto pro computador, SEM abrir aba nova,
+  // mesmo a URL sendo de outro domínio (storage.googleapis.com). Cria um <a>
+  // temporário com download=nome e href=blob, dispara .click() e revoga.
   try {
     const resposta = await fetch(urlArquivo, { credentials: 'omit' });
     if (resposta.ok) {
@@ -309,7 +309,24 @@ async function baixarArquivoComNome(urlArquivo, nomeDownload) {
       return;
     }
   } catch {
-    // Sem CORS: cai para navegação direta.
+    // fetch direto falhou (CORS). Tenta o proxy do backend (mesma origem,
+    // Content-Disposition: attachment) — também via blob, sem abrir aba.
+  }
+  try {
+    const caminho = extrairCaminhoStorageDeUrlFront(urlArquivo);
+    if (caminho) {
+      const proxyUrl = `${obterBackendConfigurado()}/api/arquivos/download?caminho=${encodeURIComponent(caminho)}`;
+      const resp = await fetch(proxyUrl, { credentials: 'omit' });
+      if (resp.ok) {
+        const blob = await resp.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        dispararDownloadLink(objectUrl, nomeSeguro);
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
+        return;
+      }
+    }
+  } catch {
+    // Último recurso: navega com download attr (pode abrir aba se cross-origin).
   }
   dispararDownloadLink(montarUrlForcarDownload(urlArquivo, nomeSeguro), nomeSeguro);
 }

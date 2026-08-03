@@ -296,12 +296,6 @@
             return null;
         }
 
-        function deveUsarRedirectNoMsal(error) {
-            if (!error) return false;
-            const texto = String(error.errorMessage || error.message || '').toLowerCase();
-            return texto.includes('popup_window_error') || texto.includes('interaction_required') || texto.includes('popup blocked') || texto.includes('user cancelled') || texto.includes('browser does not support web storage');
-        }
-
         async function cadastrarNoFirebaseComPopup() {
             if (!msalInstance) throw new Error('MSAL_NOT_READY');
             const response = await comTimeout(msalInstance.loginPopup(window.loginRequest || { scopes: ["openid", "profile", "email"] }), 'MSAL_POPUP_CADASTRO');
@@ -392,6 +386,12 @@ if (msalInstance) msalInstance.setActiveAccount(account);
             try {
                 definirMensagem('🔄 Redirecionando para Microsoft...', 'loading');
                 definirBotoesAuthHabilitados(false);
+                // Limpa qualquer interação MSAL pendente de uma tentativa anterior
+                // que ficou presa (popup fechado sem concluir). Sem isso, o próximo
+                // loginPopup lança interaction_in_progress.
+                if (msalInstance && msalReady) {
+                    try { await msalInstance.handleRedirectPromise(); } catch (_) { /* estado limpo abaixo */ }
+                }
                 if (modo === 'cadastro') {
                     const resultadoCadastroFirebase = await comTimeout(cadastrarNoFirebaseComPopup(), 'FIREBASE_POPUP_CADASTRO');
                     if (!resultadoCadastroFirebase) { iniciouRedirecionamento = true; return; }
@@ -407,30 +407,17 @@ if (msalInstance) msalInstance.setActiveAccount(account);
                 }
                 if (!msalInstance || !msalReady) { definirMensagem('❌ MSAL.js não carregou. Atualize a página.', 'error'); definirBotoesAuthHabilitados(true); return; }
                 const request = window.loginRequest || { scopes: ["openid", "profile", "email"] };
-                let loginResponse;
-                try { loginResponse = await comTimeout(msalInstance.loginPopup(request), 'MSAL_POPUP_LOGIN'); } catch (erroPopupMsal) {
-                    if (deveUsarRedirectNoMsal(erroPopupMsal)) { sessionStorage.setItem('msal_pending_login', '1'); sessionStorage.setItem('msal_pending_mode', modo); definirMensagem('🔄 Abrindo login por redirecionamento (popup bloqueado)...', 'loading'); iniciouRedirecionamento = true; return; }
-                    throw erroPopupMsal;
-                }
-                const account = loginResponse.account;
-                const token = await obterTokenValidoMsal(account, loginResponse);
-                const email = (account.username || '').toLowerCase();
-                const nome = account.name || account.username;
-                if (msalInstance) msalInstance.setActiveAccount(account);
-                if (!email) throw new Error('Não foi possível identificar o email da conta Microsoft.');
-                if (!token) throw new Error('MSAL_TOKEN_MISSING');
-                if (msalInstance) msalInstance.setActiveAccount(account);
-                if (modo === 'login') {
-                    await ativarFirebaseAuthComTokenMsal(loginResponse);
-                    await sincronizarRoleParaLocalStorage(email);
-                    const verificacao = await comTimeout(verificarUsuarioCadastradoComFallback(email), 'VERIFICACAO_USUARIO', 12000);
-                    if (!verificacao.existe) { definirMensagem('⚠️ Primeiro acesso detectado. Clique em "Cadastrar com Microsoft" para continuar.', 'error'); definirBotoesAuthHabilitados(true); return; }
-                    if (!verificacao.aprovado) { marcarCadastroPendente(email, nome); definirMensagem('⏳ Seu cadastro ainda está pendente de aprovação.', 'loading'); definirBotoesAuthHabilitados(true); return; }
-                    definirMensagem(`✅ Login bem-sucedido como ${nome}`, 'success');
-                }
-                salvarSessao(account, token, 'login_microsoft');
-                setTimeout(() => { window.location.href = REDIRECT_AFTER_LOGIN; localStorage.removeItem('rh_redirect_after_login'); }, 1500);
+                // Login = REDIRECT PURO, SEMPRE. Sem loginPopup, sem tentar popup
+                // primeiro, sem flag de decisão, sem window.open. A Microsoft
+                // redireciona de volta para a redirectUri na MESMA aba e o retorno
+                // é finalizado em processarRetornoLoginMicrosoft() (no load da
+                // página, via handleRedirectPromise) — sem precisar de outro clique.
+                sessionStorage.setItem('msal_pending_login', '1');
+                sessionStorage.setItem('msal_pending_mode', 'login');
+                definirMensagem('🔄 Redirecionando para o login da Microsoft...', 'loading');
                 iniciouRedirecionamento = true;
+                await msalInstance.loginRedirect(request);
+                return;
             } catch (error) {
                 if (String(error?.message || '').includes('FIREBASE_REDIRECT_STARTED')) { iniciouRedirecionamento = true; return; }
                 console.error('❌ Erro no login Microsoft:', error);
@@ -476,8 +463,36 @@ if (msalInstance) msalInstance.setActiveAccount(account);
             } catch (_) { /* silently ignore */ }
         }
 
+        // Detecta se esta página está sendo carregada DENTRO do popup de auth do
+        // MSAL (redirectUri = a própria página). Nesse caso o MSAL do popup
+        // captura o hash e fecha a janela sozinho — NÃO devemos rodar a init da
+        // app aqui, senão a página reinicia dentro do popup, atrapalha a captura
+        // do hash e o popup fecha antes da hora (monitorPopupForHash - window
+        // closed), gerando o loop de janelas.
+        function estaDentroDoPopupMsal() {
+            try {
+                if (!window.opener || window.opener === window) return false;
+                const hash = String(window.location.hash || '');
+                return hash.includes('code=') || hash.includes('access_token=') ||
+                       hash.includes('id_token=') || hash.includes('error=') ||
+                       hash.includes('state=');
+            } catch { return false; }
+        }
+
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', async () => {
+            // Se estamos dentro do popup do MSAL, deixa o MSAL processar o retorno
+            // e fechar o popup. Não inicializa a UI/app da página.
+            if (estaDentroDoPopupMsal()) {
+                try {
+                    if (typeof msal !== 'undefined') {
+                        const instanciaPopup = new msal.PublicClientApplication(window.msalConfig);
+                        await instanciaPopup.initialize();
+                        await instanciaPopup.handleRedirectPromise();
+                    }
+                } catch (e) { console.warn('popup MSAL: handleRedirectPromise', e && e.message); }
+                return;
+            }
             // NÃO zerar window.BACKEND_URL aqui: isso anulava o resolverBackendUrl()
             // acima e disparava "BACKEND_URL_NOT_CONFIGURED" ("Backend não configurado")
             // no login. Mantém o valor já resolvido (localStorage > Cloud Run padrão).
