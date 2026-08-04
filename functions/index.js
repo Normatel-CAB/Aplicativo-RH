@@ -10,6 +10,7 @@ const {initializeApp, cert, applicationDefault, getApps} =
 const {getFirestore} = require("firebase-admin/firestore");
 const {getAuth} = require("firebase-admin/auth");
 const {getStorage} = require("firebase-admin/storage");
+const { PDFDocument } = require("pdf-lib");
 
 setGlobalOptions({maxInstances: 10, region: "southamerica-east1"});
 
@@ -202,6 +203,35 @@ function normalizarTextoCurto(valor, limite = 120) {
   return String(valor || "").trim().slice(0, limite);
 }
 
+async function bufferFromStream(stream) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    stream.on("data", (chunk) => chunks.push(chunk));
+    stream.on("end", () => resolve(Buffer.concat(chunks)));
+    stream.on("error", reject);
+  });
+}
+
+async function converterImagemParaPdf(buffer, contentType) {
+  const imageType = String(contentType || "").toLowerCase();
+  const pdfDoc = await PDFDocument.create();
+  let embeddedImage;
+
+  if (imageType === "image/jpeg" || imageType === "image/jpg") {
+    embeddedImage = await pdfDoc.embedJpg(buffer);
+  } else if (imageType === "image/png") {
+    embeddedImage = await pdfDoc.embedPng(buffer);
+  } else {
+    return null;
+  }
+
+  const { width, height } = embeddedImage.scale(1);
+  const page = pdfDoc.addPage([width, height]);
+  page.drawImage(embeddedImage, { x: 0, y: 0, width, height });
+  const pdfBytes = await pdfDoc.save();
+  return Buffer.from(pdfBytes);
+}
+
 function validarAtestado(dados) {
   const erros = [];
   if (!dados.nome || !String(dados.nome).trim()) erros.push("Nome é obrigatório");
@@ -264,6 +294,12 @@ function normalizarNomeArquivoStorage(nomeArquivo, indice) {
       .replace(/\s+/g, " ")
       .trim() || "arquivo.pdf";
   return nomeLimpo;
+}
+
+function ehArquivoImagem(nomeArquivo) {
+  const extensoesImagem = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tiff', '.svg'];
+  const ext = path.extname(nomeArquivo).toLowerCase();
+  return extensoesImagem.includes(ext);
 }
 
 function extrairCaminhoStorageDeUrl(urlArquivo) {
@@ -437,12 +473,10 @@ async function enviarEmailConfirmacao(envio) {
   return dados;
 }
 
-function extrairPathApi(req) {
-  const caminho = req.path || "/";
-  if (caminho.startsWith("/api/")) return caminho;
-  if (caminho === "/api") return "/api";
-  if (caminho === "/") return "/";
-  return `/api${caminho.startsWith("/") ? "" : "/"}${caminho}`;
+function ehArquivoImagem(nomeArquivo) {
+  const extensoesImagem = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tiff', '.svg'];
+  const ext = path.extname(nomeArquivo).toLowerCase();
+  return extensoesImagem.includes(ext);
 }
 
 const ROTAS_ADMIN = [

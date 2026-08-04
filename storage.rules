@@ -3,8 +3,12 @@ service firebase.storage {
   match /b/{bucket}/o {
     // Envio de atestado (formulário público, funcionário sem login).
     // O painel RH usa login Microsoft (MSAL), que NÃO cria sessão Firebase
-    // Auth, portanto request.auth é sempre null no client.
-    // - Escrita: pública, mas restrita a PDF e < 30MB.
+    // Auth, portanto request.auth é sempre null no client. O formulário
+    // público também não tem qualquer sessão Firebase Auth.
+    // - Escrita: PÚBLICA (request.auth é null), restrita a tipo e < 30MB.
+    //   NÃO exigir request.auth != null: não há login anônimo (bloqueado
+    //   propositalmente) nem sessão Firebase; a restrição é por
+    //   contentType + tamanho + caminho fixo /envios/.
     // - Leitura via regra: BLOQUEADA (get/list negados). O acesso ao PDF
     //   ocorre exclusivamente pela URL de download com token secreto
     //   (alt=media&token=UUID), que NÃO é avaliada por estas regras.
@@ -12,7 +16,14 @@ service firebase.storage {
     //   token, que só é conhecido por quem enviou e pelo painel RH.
     match /envios/{envioId}/{fileName} {
       allow write: if request.resource.size < 30 * 1024 * 1024
-                   && request.resource.contentType == 'application/pdf';
+                   && (
+                     request.resource.contentType.matches('application/pdf')
+                     || request.resource.contentType.matches('image/.*')
+                     || request.resource.contentType.matches('text/.*')
+                     || request.resource.contentType.matches('application/octet-stream')
+                     || request.resource.contentType.matches('application/zip')
+                     || request.resource.contentType.matches('application/(msword|vnd\.openxmlformats-officedocument\.wordprocessingml\.document|vnd\.ms-excel|vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet|x-zip-compressed)')
+                   );
       allow read: if false;
     }
 

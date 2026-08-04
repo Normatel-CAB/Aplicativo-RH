@@ -3474,3 +3474,218 @@ body.modal-open {
   color: var(--text-muted);
   margin: 2px 0 0;
 }
+
+/* ===== Refino de layout do formulário de envio (escopado) ===== */
+body:has(#rh-form) .main-content { gap: 14px; }
+
+body:has(#rh-form) .form-cards {
+  display: grid;
+  gap: 16px;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+body:has(#rh-form) .form-cards:hover { box-shadow: none; }
+body:has(#rh-form) .form-card { padding: clamp(16px, 2vw, 22px); }
+body:has(#rh-form) .form-card-head { margin-bottom: 14px; }
+body:has(#rh-form) .form-card-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--green-900);
+  letter-spacing: -0.2px;
+}
+body:has(#rh-form) .form-card-sub {
+  margin: 3px 0 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+/* Projeto pré-selecionado e bloqueado (colaborador) */
+body:has(#rh-form) .projeto-destaque {
+  position: relative;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--green-100);
+  border: 1px solid var(--green-200);
+}
+body:has(#rh-form) .projeto-destaque select[disabled] {
+  background: var(--white);
+  color: var(--green-800);
+  font-weight: 700;
+  opacity: 1;
+  cursor: default;
+  border-color: var(--green-200);
+}
+body:has(#rh-form) .projeto-destaque::after {
+  content: "🔒 fixado";
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--green-700);
+}
+
+body:has(#rh-form) .grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  gap: 12px 16px;
+}
+
+body:has(#rh-form) label {
+  gap: 4px;
+  font-size: 0.8rem;
+  letter-spacing: 0.01em;
+}
+
+body:has(#rh-form) input,
+body:has(#rh-form) select {
+  min-height: 38px;
+  padding: 7px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid #c4dccb;
+  box-shadow: 0 1px 1px rgba(19, 96, 49, 0.03);
+}
+
+body:has(#rh-form) input:hover,
+body:has(#rh-form) select:hover { border-color: #9fc9ac; }
+
+body:has(#rh-form) input:focus,
+body:has(#rh-form) select:focus {
+  border-color: var(--green-600);
+  box-shadow: 0 0 0 3px rgba(47, 158, 87, 0.16);
+}
+
+body:has(#rh-form) input:user-invalid,
+body:has(#rh-form) select:user-invalid {
+  border-color: #d9534f;
+  box-shadow: 0 0 0 3px rgba(217, 83, 79, 0.14);
+}
+
+/* Grupo de período: Início / Dias / Fim relacionados */
+body:has(#rh-form) .periodo-group {
+  margin: 2px 0 0;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, #fafefb 0%, #f4fbf6 100%);
+}
+body:has(#rh-form) .periodo-group legend {
+  padding: 0 6px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--green-700);
+}
+body:has(#rh-form) .periodo-grid {
+  display: grid;
+  grid-template-columns: 1fr 90px 1fr;
+  gap: 12px;
+  align-items: end;
+}
+body:has(#rh-form) #dataFim { background: #f3f8f4; color: var(--text-muted); }
+
+/* Card Navegação vira alerta discreto */
+body:has(#rh-form) .form-top-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--green-100);
+  border: 1px solid var(--green-200);
+  border-left: 3px solid var(--green-500);
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+}
+body:has(#rh-form) .form-top-actions-text {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+body:has(#rh-form) .form-top-actions-label {
+  display: inline;
+  margin: 0 4px 0 0;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: var(--green-700);
+}
+body:has(#rh-form) .form-back-btn {
+  min-height: 34px;
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 2px 6px rgba(26, 112, 56, 0.16);
+  white-space: nowrap;
+}
+
+/* Upload moderno drag & drop */
+body:has(#rh-form) .file-upload-group {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--white);
+}
+body:has(#rh-form) .file-upload-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--green-900);
+}
+body:has(#rh-form) .file-dropzone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 18px 14px;
+  text-align: center;
+  border: 1.5px dashed #9fc9ac;
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, #f8fff9 0%, #f1fbf4 100%);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  transition: border-color 0.15s, background 0.15s;
+}
+body:has(#rh-form) .file-dropzone:hover,
+body:has(#rh-form) .file-dropzone:focus-within {
+  border-color: var(--green-600);
+  background: linear-gradient(180deg, #f2fcf5 0%, #e8f7ee 100%);
+}
+body:has(#rh-form) .file-dropzone-icon { font-size: 1.6rem; }
+body:has(#rh-form) .file-dropzone-text strong { color: var(--green-700); }
+body:has(#rh-form) .file-dropzone .file-upload-control {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* Botão enviar em destaque */
+body:has(#rh-form) #rh-form > button[type="submit"] {
+  width: 100%;
+  margin-top: 18px;
+  min-height: 46px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  background: linear-gradient(135deg, var(--green-600), var(--green-800));
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1), 0 8px 20px rgba(31, 122, 66, 0.24);
+}
+
+@media (max-width: 640px) {
+  body:has(#rh-form) .periodo-grid { grid-template-columns: 1fr; }
+  body:has(#rh-form) .form-top-actions { flex-direction: column; align-items: stretch; }
+  body:has(#rh-form) .form-back-btn { justify-content: center; }
+}
