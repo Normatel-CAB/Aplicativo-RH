@@ -358,11 +358,15 @@
             if (!email) throw new Error('Não foi possível identificar o email da conta Microsoft.');
             if (modoPendente !== 'login') return false;
             if (!token) { definirMensagem('❌ Login Microsoft retornou sem token válido.', 'error'); definirBotoesAuthHabilitados(true); return true; }
-if (msalInstance) msalInstance.setActiveAccount(account);
-            definirMensagem(`✅ Login bem-sucedido como ${nome}`, 'success');
+
+            // -------- FIX --------
+            // Salvar token e forçar recarregamento da página
             salvarSessao(account, token, 'login_microsoft');
             await ativarFirebaseAuthComTokenMsal(loginResponse);
             await sincronizarRoleParaLocalStorage(email);
+            definirMensagem(`✅ Login bem-sucedido como ${nome}`, 'success');
+            window.location.reload();
+
             const verificacao = await comTimeout(verificarUsuarioCadastradoComFallback(email), 'VERIFICACAO_USUARIO', 12000);
             if (!verificacao.existe) { definirMensagem('⚠️ Primeiro acesso detectado. Clique em "Cadastrar com Microsoft" para continuar.', 'error'); document.getElementById('loginBtn').disabled = false; document.getElementById('registerBtn').disabled = false; return true; }
             if (!verificacao.aprovado) { marcarCadastroPendente(email, nome); definirMensagem('⏳ Seu cadastro ainda está pendente de aprovação.', 'loading'); document.getElementById('loginBtn').disabled = false; document.getElementById('registerBtn').disabled = false; return true; }
