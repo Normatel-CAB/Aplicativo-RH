@@ -33,4 +33,10 @@ if (typeof firebase.storage === 'function') {
   window.storage = null;
 }
 
-window.auth = firebase.auth();
+// Storage aceita upload público no caminho /envios/ (ver storage.rules),
+// sem login anônimo — bloqueado propositalmente no Firebase.
+if (typeof firebase.auth === 'function') {
+  window.auth = firebase.auth();
+} else {
+  window.auth = null;
+}

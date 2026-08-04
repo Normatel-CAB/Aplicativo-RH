@@ -13,13 +13,11 @@
       "firebase.json",
       "**/.*",
       "**/node_modules/**",
-      "backend/**",
       "backup/**",
       "Dockerfile",
       "fly.toml",
       "package.json",
       "package-lock.json",
-      "start-backend.ps1",
       "functions/**",
       "vercel.json"
     ],

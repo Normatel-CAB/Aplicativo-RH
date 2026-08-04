@@ -49,103 +49,123 @@
       <p class="page-subtitle">Preencha os dados abaixo para encaminhar o atestado ao RH.</p>
     </section>
 
-    <section class="form-top-actions card">
-      <div>
-        <p class="form-top-actions-label">Navegação</p>
-        <p class="form-top-actions-text">Se quiser escolher outro projeto, volte para a tela de seleção.</p>
-      </div>
-      <a id="formBackToIndexBtn" href="/" class="form-back-btn" aria-label="Voltar para seleção de projeto">Voltar para seleção</a>
+    <section class="form-top-actions" role="note">
+      <p class="form-top-actions-text"><span class="form-top-actions-label">Navegação</span> Para escolher outro projeto, volte para a tela de seleção.</p>
+      <a id="formBackToIndexBtn" href="/" class="form-back-btn" aria-label="Voltar para seleção de projeto">Voltar</a>
     </section>
 
-    <form id="rh-form" class="card" novalidate>
-      <div class="grid">
-        <label>
-          Nome
-          <input type="text" id="nome" name="nome" required />
-        </label>
+    <form id="rh-form" class="form-cards" novalidate>
+      <section class="form-card card">
+        <header class="form-card-head">
+          <h2 class="form-card-title">Dados do colaborador</h2>
+          <p class="form-card-sub">Identificação de quem está enviando o atestado.</p>
+        </header>
+        <div class="grid">
+          <label>
+            Nome
+            <input type="text" id="nome" name="nome" required />
+          </label>
 
-        <label>
-          Email
-          <input type="email" id="email" name="email" required />
-        </label>
+          <label>
+            Email
+            <input type="email" id="email" name="email" required />
+          </label>
 
-        <label>
-          Função
-          <input type="text" id="funcao" name="funcao" required />
-        </label>
+          <label>
+            Função
+            <input type="text" id="funcao" name="funcao" required />
+          </label>
 
-        <label>
-          Projeto
-          <select id="projeto" name="projeto" required>
-            <option value="">Selecione um projeto</option>
-            <option value="Projeto 736 - Base Imbetiba">Projeto 736 - Base Imbetiba</option>
-            <option value="Projeto 737 - Base Imboassica">Projeto 737 - Base Imboassica</option>
-            <option value="Projeto 743 - Base Cabiunas">Projeto 743 - Base Cabiunas</option>
-            <option value="Projeto 743 - Severina">Projeto 743 - Severina</option>
-            <option value="Projeto 743 - Barra do Furado">Projeto 743 - Barra do Furado</option>
-            <option value="Projeto 741 - Base UTE">Projeto 741 - Base UTE</option>
-            <option value="Projeto 741 - Base Áreas Externa">Projeto 741 - Base Áreas Externa</option>
-            <option value="Projeto 741 - Base Tapera">Projeto 741 - Base Tapera</option>
-            <option value="Apoio Macae">Apoio Macae</option>
-          </select>
-        </label>
+          <label>
+            Projeto
+            <select id="projeto" name="projeto" required>
+              <option value="">Selecione um projeto</option>
+              <option value="Projeto 736 - Base Imbetiba">Projeto 736 - Base Imbetiba</option>
+              <option value="Projeto 737 - Base Imboassica">Projeto 737 - Base Imboassica</option>
+              <option value="Projeto 743 - Base Cabiunas">Projeto 743 - Base Cabiunas</option>
+              <option value="Projeto 743 - Severina">Projeto 743 - Severina</option>
+              <option value="Projeto 743 - Barra do Furado">Projeto 743 - Barra do Furado</option>
+              <option value="Projeto 741 - Base UTE">Projeto 741 - Base UTE</option>
+              <option value="Projeto 741 - Base Áreas Externa">Projeto 741 - Base Áreas Externa</option>
+              <option value="Projeto 741 - Base Tapera">Projeto 741 - Base Tapera</option>
+              <option value="Apoio Macae">Apoio Macae</option>
+            </select>
+          </label>
 
-        <label>
-          Tipo de atestado
-          <select id="tipoAtestado" name="tipoAtestado" required>
-            <option value="">Selecione um tipo</option>
-            <option value="Odontológico">Odontológico</option>
-            <option value="Licença maternidade">Licença maternidade</option>
-            <option value="Atestado médico">Atestado médico</option>
-            <option value="Declaração">Declaração</option>
-            <option value="Atestado de Óbito">Atestado de Óbito</option>
-          </select>
-        </label>
+          <label>
+            Tipo de atestado
+            <select id="tipoAtestado" name="tipoAtestado" required>
+              <option value="">Selecione um tipo</option>
+              <option value="Odontológico">Odontológico</option>
+              <option value="Licença maternidade">Licença maternidade</option>
+              <option value="Atestado médico">Atestado médico</option>
+              <option value="Declaração">Declaração</option>
+              <option value="Atestado de Óbito">Atestado de Óbito</option>
+            </select>
+          </label>
 
-        <label id="grauParentescoWrapper" class="hidden">
-          Grau de Parentesco
-          <select id="grauParentesco" name="grauParentesco">
-            <option value="">Selecione o grau de parentesco</option>
-            <option value="Esposa">Esposa</option>
-            <option value="Marido">Marido</option>
-            <option value="Bisavós">Bisavós</option>
-            <option value="Avós">Avós</option>
-            <option value="Pais">Pais</option>
-            <option value="Filhos">Filhos</option>
-            <option value="Netos">Netos</option>
-            <option value="Bisnetos">Bisnetos</option>
-            <option value="Irmãos">Irmãos</option>
-          </select>
-        </label>
+          <label id="grauParentescoWrapper" class="hidden">
+            Grau de Parentesco
+            <select id="grauParentesco" name="grauParentesco">
+              <option value="">Selecione o grau de parentesco</option>
+              <option value="Esposa">Esposa</option>
+              <option value="Marido">Marido</option>
+              <option value="Bisavós">Bisavós</option>
+              <option value="Avós">Avós</option>
+              <option value="Pais">Pais</option>
+              <option value="Filhos">Filhos</option>
+              <option value="Netos">Netos</option>
+              <option value="Bisnetos">Bisnetos</option>
+              <option value="Irmãos">Irmãos</option>
+            </select>
+          </label>
 
-        <label id="horasComparecimentoWrapper" class="hidden">
-          Horas de comparecimento
-          <input type="number" id="horasComparecimento" name="horasComparecimento" min="1" step="1" />
-        </label>
+          <label id="horasComparecimentoWrapper" class="hidden">
+            Horas de comparecimento
+            <input type="number" id="horasComparecimento" name="horasComparecimento" min="1" step="1" />
+          </label>
+        </div>
+      </section>
 
-        <label>
-          Data de início
-          <input type="text" id="dataInicio" name="dataInicio" inputmode="numeric" placeholder="DD/MM/AAAA" pattern="^\d{2}/\d{2}/\d{4}$" maxlength="10" required />
-        </label>
+      <section class="form-card card">
+        <header class="form-card-head">
+          <h2 class="form-card-title">Período do afastamento</h2>
+          <p class="form-card-sub">A data de fim é calculada automaticamente a partir do início e dos dias.</p>
+        </header>
+        <div class="periodo-grid">
+          <label>
+            Data de início
+            <input type="text" id="dataInicio" name="dataInicio" inputmode="numeric" placeholder="DD/MM/AAAA" pattern="^\d{2}/\d{2}/\d{4}$" maxlength="10" required />
+          </label>
 
-        <label>
-          Data de fim
-          <input type="text" id="dataFim" name="dataFim" inputmode="numeric" placeholder="DD/MM/AAAA" pattern="^\d{2}/\d{2}/\d{4}$" maxlength="10" readonly required />
-        </label>
+          <label id="diasWrapper">
+            Dias
+            <input type="number" id="dias" name="dias" min="1" step="1" required />
+          </label>
 
-        <label id="diasWrapper">
-          Dias
-          <input type="number" id="dias" name="dias" min="1" step="1" required />
-        </label>
+          <label>
+            Data de fim
+            <input type="text" id="dataFim" name="dataFim" inputmode="numeric" placeholder="DD/MM/AAAA" pattern="^\d{2}/\d{2}/\d{4}$" maxlength="10" readonly required />
+          </label>
+        </div>
+      </section>
 
-        <label class="full-width file-upload-group">
-          Enviar arquivo(s)
-          <input type="file" id="arquivos" name="arquivos" class="file-upload-control" multiple required />
+      <section class="form-card card">
+        <header class="form-card-head">
+          <h2 class="form-card-title">Anexos</h2>
+          <p class="form-card-sub">Envie o atestado em PDF, imagem ou documento.</p>
+        </header>
+        <label class="file-upload-group">
+          <span class="file-upload-title">Enviar arquivo(s)</span>
+          <div class="file-dropzone">
+            <span class="file-dropzone-icon" aria-hidden="true">📄</span>
+            <span class="file-dropzone-text">Arraste os arquivos aqui ou <strong>clique para selecionar</strong></span>
+            <input type="file" id="arquivos" name="arquivos" class="file-upload-control" multiple required />
+          </div>
           <small class="upload-help">Anexe um ou mais arquivos (PDF, imagem ou documento).</small>
         </label>
-
-        <div id="filePreviewArea" class="file-preview-area hidden full-width" aria-live="polite" aria-label="Pré-visualização dos arquivos selecionados"></div>
-      </div>
+        <div id="filePreviewArea" class="file-preview-area hidden" aria-live="polite" aria-label="Pré-visualização dos arquivos selecionados"></div>
+      </section>
 
       <button type="submit">Enviar</button>
       <p id="mensagem" class="status-message status-message--info status-toast" role="status" aria-live="polite"></p>
@@ -163,6 +183,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
   <script src="../scripts/firebase-config.js?v=20260226b"></script>
+  <script src="../scripts/atestados-file-name.js"></script>
   <script src="../scripts/script.js?v=20260309v"></script>
 </body>
 </html>

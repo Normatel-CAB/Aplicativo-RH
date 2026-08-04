@@ -271,7 +271,9 @@ function setDetalhesStatus(texto, tipo = 'info') {
 
 function formatarData(valorData) {
   if (!valorData || typeof valorData !== 'string') return '-';
-  const partes = valorData.split('-');
+  // Aceita tanto data pura (YYYY-MM-DD) quanto timestamp (YYYY-MM-DDTHH:mm:ss.sssZ):
+  // extrai só a parte da data antes do "T" antes de separar por "-".
+  const partes = valorData.split('T')[0].split('-');
   if (partes.length !== 3) return valorData;
   return `${partes[2]}/${partes[1]}/${partes[0]}`;
 }
@@ -501,7 +503,8 @@ function obterDataISO(valorDataHora) {
 
 function formatarDataCurtaParaNome(dataISO) {
   if (!dataISO || typeof dataISO !== 'string') return '00.00.00';
-  const [ano, mes, dia] = dataISO.split('-');
+  // Robusto a data pura ou timestamp: usa só a parte antes do "T".
+  const [ano, mes, dia] = dataISO.split('T')[0].split('-');
   return `${dia || '00'}.${mes || '00'}.${(ano || '').slice(-2) || '00'}`;
 }
 

@@ -26,11 +26,6 @@ function resolverBackendUrl() {
     }
   }
 
-  const host = window.location.hostname;
-  if (host === 'localhost' || host === '127.0.0.1') {
-    return 'http://localhost:3001';
-  }
-
   if (window.__RH_BACKEND_URL__) {
     return String(window.__RH_BACKEND_URL__).trim().replace(/\/+$/, '');
   }
