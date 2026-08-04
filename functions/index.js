@@ -520,10 +520,12 @@ async function enviarEmailConfirmacao(envio) {
   return dados;
 }
 
-function ehArquivoImagem(nomeArquivo) {
-  const extensoesImagem = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tiff', '.svg'];
-  const ext = path.extname(nomeArquivo).toLowerCase();
-  return extensoesImagem.includes(ext);
+function extrairPathApi(req) {
+  const caminho = req.path || "/";
+  if (caminho.startsWith("/api/")) return caminho;
+  if (caminho === "/api") return "/api";
+  if (caminho === "/") return "/";
+  return `/api${caminho.startsWith("/") ? "" : "/"}${caminho}`;
 }
 
 const ROTAS_ADMIN = [
@@ -655,7 +657,7 @@ async function responderApi(req, res) {
   }
 
   if (req.method === "OPTIONS") {
-    res.status(200).end();
+    res.status(204).end();
     return;
   }
 
