@@ -212,17 +212,62 @@ async function bufferFromStream(stream) {
   });
 }
 
-async function converterImagemParaPdf(buffer, contentType) {
-  const imageType = String(contentType || "").toLowerCase();
+const EXTENSOES_IMAGEM = new Set([
+  ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp",
+  ".tif", ".tiff", ".avif", ".heic", ".heif",
+]);
+
+const MIMES_IMAGEM = new Set([
+  "image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif",
+  "image/bmp", "image/tiff", "image/avif", "image/heic", "image/heif",
+]);
+
+// Detecta imagem por MIME e/ou extensão. Usa ambos porque uploads antigos
+// podem ter contentType genérico (application/octet-stream) mas nome com
+// extensão de imagem, e vice-versa.
+function detectarImagem(nomeArquivo, contentType) {
+  const mime = String(contentType || "").toLowerCase().split(";")[0].trim();
+  if (MIMES_IMAGEM.has(mime)) return true;
+  const ext = path.extname(String(nomeArquivo || "")).toLowerCase();
+  return EXTENSOES_IMAGEM.has(ext);
+}
+
+// Converte qualquer imagem suportada em PDF de página única, preservando as
+// dimensões e a qualidade originais. JPEG/PNG são embutidos direto pelo
+// pdf-lib; demais formatos (WEBP, GIF, BMP, TIFF, AVIF, HEIC) são
+// transcodificados para PNG sem perdas via sharp antes do embed.
+async function converterImagemParaPdf(buffer, contentType, nomeArquivo) {
+  const mime = String(contentType || "").toLowerCase().split(";")[0].trim();
+  const ext = path.extname(String(nomeArquivo || "")).toLowerCase();
+
+  let pngBuffer = null;
+  let jpgBuffer = null;
+
+  if (mime === "image/jpeg" || mime === "image/jpg" ||
+      ext === ".jpg" || ext === ".jpeg") {
+    jpgBuffer = buffer;
+  } else if (mime === "image/png" || ext === ".png") {
+    pngBuffer = buffer;
+  } else {
+    // WEBP/GIF/BMP/TIFF/AVIF/HEIC → PNG sem perdas via sharp.
+    const sharp = require("sharp");
+    pngBuffer = await sharp(buffer, { failOn: "none" })
+        .png({ compressionLevel: 6 })
+        .toBuffer();
+  }
+
   const pdfDoc = await PDFDocument.create();
   let embeddedImage;
-
-  if (imageType === "image/jpeg" || imageType === "image/jpg") {
-    embeddedImage = await pdfDoc.embedJpg(buffer);
-  } else if (imageType === "image/png") {
-    embeddedImage = await pdfDoc.embedPng(buffer);
+  if (jpgBuffer) {
+    try {
+      embeddedImage = await pdfDoc.embedJpg(jpgBuffer);
+    } catch (_erro) {
+      const sharp = require("sharp");
+      const png = await sharp(buffer, { failOn: "none" }).png().toBuffer();
+      embeddedImage = await pdfDoc.embedPng(png);
+    }
   } else {
-    return null;
+    embeddedImage = await pdfDoc.embedPng(pngBuffer);
   }
 
   const { width, height } = embeddedImage.scale(1);
@@ -230,6 +275,14 @@ async function converterImagemParaPdf(buffer, contentType) {
   page.drawImage(embeddedImage, { x: 0, y: 0, width, height });
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes);
+}
+
+// Troca a extensão do nome do arquivo por .pdf (para o Content-Disposition).
+function garantirNomePdf(nomeArquivo) {
+  const nome = String(nomeArquivo || "arquivo").trim() || "arquivo";
+  const ext = path.extname(nome);
+  const base = ext ? nome.slice(0, -ext.length) : nome;
+  return `${base || "arquivo"}.pdf`;
 }
 
 function validarAtestado(dados) {
@@ -294,12 +347,6 @@ function normalizarNomeArquivoStorage(nomeArquivo, indice) {
       .replace(/\s+/g, " ")
       .trim() || "arquivo.pdf";
   return nomeLimpo;
-}
-
-function ehArquivoImagem(nomeArquivo) {
-  const extensoesImagem = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tiff', '.svg'];
-  const ext = path.extname(nomeArquivo).toLowerCase();
-  return extensoesImagem.includes(ext);
 }
 
 function extrairCaminhoStorageDeUrl(urlArquivo) {
@@ -730,9 +777,40 @@ async function responderApi(req, res) {
 
       try {
         const [metadata] = await file.getMetadata();
-        const contentType = metadata.contentType || "application/pdf";
-        const nomeBase = sanitizarNomeArquivoProxy(caminhoArquivo.split("/").pop());
-        res.setHeader("Content-Type", contentType);
+        const contentType = metadata.contentType || "application/octet-stream";
+        const nomeArquivoOriginal = caminhoArquivo.split("/").pop();
+        const ehImagem = detectarImagem(nomeArquivoOriginal, contentType);
+
+        // Imagem → converte para PDF em memória e serve como PDF. Nunca deixa
+        // o usuário baixar a imagem crua; o download é sempre PDF.
+        if (ehImagem) {
+          const bufferOriginal = await bufferFromStream(file.createReadStream());
+          let pdfBuffer;
+          try {
+            pdfBuffer = await converterImagemParaPdf(
+                bufferOriginal, contentType, nomeArquivoOriginal);
+          } catch (erroConversao) {
+            logger.error("Falha ao converter imagem para PDF", {
+              caminho: caminhoArquivo,
+              erro: erroConversao.message || erroConversao,
+            });
+            res.status(500).json({error: "Falha ao converter imagem para PDF."});
+            return;
+          }
+
+          const nomePdf = sanitizarNomeArquivoProxy(
+              garantirNomePdf(nomeArquivoOriginal));
+          res.setHeader("Content-Type", "application/pdf");
+          res.setHeader("Content-Disposition", `attachment; filename="${nomePdf}"`);
+          res.setHeader("Cache-Control", "private, max-age=0, no-store");
+          res.setHeader("Content-Length", pdfBuffer.length);
+          res.status(200).end(pdfBuffer);
+          return;
+        }
+
+        // PDF (ou outro binário) → serve como está, forçando download.
+        const nomeBase = sanitizarNomeArquivoProxy(nomeArquivoOriginal);
+        res.setHeader("Content-Type", contentType.includes("pdf") ? "application/pdf" : contentType);
         // attachment (não inline): força download em vez de abrir no browser.
         res.setHeader("Content-Disposition", `attachment; filename="${nomeBase}"`);
         res.setHeader("Cache-Control", "private, max-age=0, no-store");
@@ -1069,7 +1147,29 @@ async function responderApi(req, res) {
 
       try {
         const remoto = await baixarArquivoRemotoProxy(urlArquivo);
-        res.setHeader("Content-Type", remoto.contentType || "application/octet-stream");
+        // Se o arquivo remoto for imagem, converte para PDF antes de servir —
+        // o download é sempre PDF, mesmo neste caminho de proxy por URL.
+        if (detectarImagem(nomeArquivo, remoto.contentType)) {
+          try {
+            const pdfBuffer = await converterImagemParaPdf(
+                remoto.buffer, remoto.contentType, nomeArquivo);
+            const nomePdf = sanitizarNomeArquivoProxy(garantirNomePdf(nomeArquivo));
+            res.setHeader("Content-Type", "application/pdf");
+            res.setHeader("Content-Disposition", `attachment; filename="${nomePdf}"`);
+            res.setHeader("Cache-Control", "no-store");
+            res.setHeader("Content-Length", pdfBuffer.length);
+            res.status(200).end(pdfBuffer);
+            return;
+          } catch (erroConversao) {
+            logger.error("Falha ao converter imagem (proxy) para PDF", erroConversao);
+            res.status(500).json({error: "Falha ao converter imagem para PDF."});
+            return;
+          }
+        }
+
+        const contentTypeFinal = String(remoto.contentType || "").includes("pdf") ?
+          "application/pdf" : (remoto.contentType || "application/octet-stream");
+        res.setHeader("Content-Type", contentTypeFinal);
         res.setHeader("Content-Disposition", `attachment; filename="${nomeArquivo}"`);
         res.setHeader("Cache-Control", "no-store");
         res.status(200).send(remoto.buffer);
