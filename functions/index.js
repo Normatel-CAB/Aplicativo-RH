@@ -25,6 +25,9 @@ const DEFAULT_ALLOWED_ORIGINS = [
   "http://127.0.0.1:5500",
   "https://normatel-rh.web.app",
   "https://normatel-rh.firebaseapp.com",
+  // Origem de produção do frontend (Vercel). Deploy previews continuam
+  // cobertos pelo sufixo .vercel.app em ALLOWED_ORIGIN_SUFFIXES.
+  "https://rh2-sigma.vercel.app",
 ];
 
 const ALLOWED_ORIGINS = obterOrigensPermitidas();
