@@ -542,10 +542,17 @@ function montarNomePdfPorRegistro(record, indice = 0, totalArquivos = 1) {
 function obterNomeArquivoEnviado(arquivo, record, indice, totalArquivos) {
   const nomeArquivoSalvo = typeof arquivo?.nome === 'string' ? arquivo.nome.trim() : '';
   if (nomeArquivoSalvo) {
-    return nomeArquivoSalvo;
+    // O download é sempre PDF; normaliza a extensão exibida para .pdf.
+    return nomeArquivoSalvo.replace(/\.[^./\\]+$/, '') + '.pdf';
   }
 
   return montarNomePdfPorRegistro(record, indice, totalArquivos);
+}
+
+// Garante extensão .pdf no nome (o backend sempre entrega PDF).
+function garantirNomePdfDownload(nome) {
+  const base = sanitizarNomeArquivoDownload(nome);
+  return base.replace(/\.[^./\\]+$/, '') + '.pdf';
 }
 
 function validarUrl(url) {
@@ -1285,41 +1292,51 @@ function dispararDownloadLink(href, nomeDownload) {
   link.remove();
 }
 
-async function baixarArquivoComNome(urlArquivo, nomeDownload) {
-  const nomeSeguro = sanitizarNomeArquivoDownload(nomeDownload);
-  // Download via blob local: baixa direto pro computador, SEM abrir aba nova,
-  // mesmo a URL sendo de outro domínio (storage.googleapis.com). Cria um <a>
-  // temporário com download=nome e href=blob, dispara .click() e revoga.
-  try {
-    const resposta = await fetch(urlArquivo, { credentials: 'omit' });
-    if (resposta.ok) {
-      const blob = await resposta.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      dispararDownloadLink(objectUrl, nomeSeguro);
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
-      return;
-    }
-  } catch {
-    // fetch direto falhou (CORS). Tenta o proxy do backend (mesma origem,
-    // Content-Disposition: attachment) — também via blob, sem abrir aba.
-  }
-  try {
-    const caminho = extrairCaminhoStorageDeUrlFront(urlArquivo);
-    if (caminho) {
+// Baixa um arquivo forçando PDF. Usa SEMPRE o proxy backend, que detecta
+// imagem e converte para PDF no servidor (Content-Type application/pdf,
+// Content-Disposition attachment). Nunca baixa a imagem crua.
+async function baixarArquivoComNome(caminhoStorage, urlArquivo, nomeDownload) {
+  const nomePdf = garantirNomePdfDownload(nomeDownload);
+
+  // 1) Caminho canônico: proxy por caminho de Storage (converte imagem→PDF).
+  const caminho = caminhoStorage || extrairCaminhoStorageDeUrlFront(urlArquivo || '');
+  if (caminho) {
+    try {
       const proxyUrl = `${obterBackendConfigurado()}/api/arquivos/download?caminho=${encodeURIComponent(caminho)}`;
       const resp = await fetch(proxyUrl, { credentials: 'omit' });
       if (resp.ok) {
         const blob = await resp.blob();
         const objectUrl = URL.createObjectURL(blob);
-        dispararDownloadLink(objectUrl, nomeSeguro);
+        dispararDownloadLink(objectUrl, nomePdf);
         setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
         return;
       }
+    } catch {
+      // segue para o fallback por URL
     }
-  } catch {
-    // Último recurso: navega com download attr (pode abrir aba se cross-origin).
   }
-  dispararDownloadLink(montarUrlForcarDownload(urlArquivo, nomeSeguro), nomeSeguro);
+
+  // 2) Fallback: proxy por URL (também converte imagem→PDF no servidor).
+  if (urlArquivo) {
+    try {
+      const proxyPorUrl = `${obterBackendConfigurado()}/api/arquivos/proxy?url=${encodeURIComponent(urlArquivo)}&nome=${encodeURIComponent(nomePdf)}`;
+      const resp = await fetch(proxyPorUrl, { credentials: 'omit' });
+      if (resp.ok) {
+        const blob = await resp.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        dispararDownloadLink(objectUrl, nomePdf);
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
+        return;
+      }
+    } catch {
+      // último recurso abaixo
+    }
+    // 3) Último recurso: navega direto pra URL.
+    dispararDownloadLink(montarUrlForcarDownload(urlArquivo, nomePdf), nomePdf);
+    return;
+  }
+
+  throw new Error('Sem caminho de Storage nem URL para download.');
 }
 
 function ehUrlFirebaseStorage(urlArquivo) {
@@ -1385,32 +1402,25 @@ async function obterBackendsZipDisponiveis() {
   return disponiveis;
 }
 
-async function baixarBlobParaZip(urlArquivo, nomeArquivo, backendsDisponiveis = null) {
+async function baixarBlobParaZip(caminhoStorage, urlArquivo, nomeArquivo, backendsDisponiveis = null) {
   let ultimoErroProxy = '';
 
   const backends = Array.isArray(backendsDisponiveis)
     ? backendsDisponiveis
     : await obterBackendsZipDisponiveis();
 
-  if (urlRequerProxyParaZip(urlArquivo) && !backends.length) {
-    throw new Error('BACKEND_PROXY_NOT_AVAILABLE');
-  }
+  const caminho = caminhoStorage || extrairCaminhoStorageDeUrlFront(urlArquivo || '');
 
-  try {
-    const respostaDireta = await fetch(urlArquivo, { credentials: 'omit' });
-    if (respostaDireta.ok) {
-      return await respostaDireta.blob();
-    }
-  } catch {
-    // tenta proxy via backend
-  }
-
+  // Sempre passa pelo backend: converte imagem→PDF e serve como PDF. Não faz
+  // fetch direto na URL pública (baixaria a imagem crua, não o PDF).
   if (!backends.length) {
     throw new Error('BACKEND_PROXY_NOT_AVAILABLE');
   }
 
   for (const backendBase of backends) {
-    const proxyUrl = `${backendBase}/api/arquivos/proxy?url=${encodeURIComponent(urlArquivo)}&nome=${encodeURIComponent(nomeArquivo)}`;
+    const proxyUrl = caminho
+      ? `${backendBase}/api/arquivos/download?caminho=${encodeURIComponent(caminho)}`
+      : `${backendBase}/api/arquivos/proxy?url=${encodeURIComponent(urlArquivo)}&nome=${encodeURIComponent(nomeArquivo)}`;
     try {
       const respostaProxy = await fetch(proxyUrl, { credentials: 'omit' });
       if (respostaProxy.ok) {
@@ -1433,7 +1443,7 @@ async function baixarArquivosIndividualmente(arquivos) {
   for (let i = 0; i < arquivos.length; i += 1) {
     const arquivo = arquivos[i];
     try {
-      await baixarArquivoComNome(arquivo.url, arquivo.nome);
+      await baixarArquivoComNome(arquivo.caminho || '', arquivo.url, arquivo.nome);
       sucesso += 1;
     } catch {
       falhas += 1;
@@ -1454,28 +1464,24 @@ function ativarDownloadComNome() {
 
     event.preventDefault();
     const raw = link.getAttribute('data-raw-url') || '';
-    const storagePath = link.getAttribute('data-storage-path') || '';
-    let urlArquivo = raw ? decodeURIComponent(raw) : '';
+    const storagePathAttr = link.getAttribute('data-storage-path') || '';
+    const storagePath = storagePathAttr ? decodeURIComponent(storagePathAttr) : '';
+    const urlArquivo = raw ? decodeURIComponent(raw) : '';
     const nomeCodificado = link.getAttribute('data-download-name') || '';
     const nomeDownload = nomeCodificado ? decodeURIComponent(nomeCodificado) : 'arquivo.pdf';
 
     try {
-      // Se há caminho de Storage, sempre gera signed URL (opção B). A URL
-      // pública direta só é usada como último recurso quando não há caminho.
-      if (storagePath) {
-        urlArquivo = await obterUrlAssinadaStorage(decodeURIComponent(storagePath));
-      }
-      if (!urlArquivo) {
+      if (!storagePath && !urlArquivo) {
         throw new Error('Arquivo sem URL nem caminho de Storage (data-raw-url e data-storage-path vazios).');
       }
-      await baixarArquivoComNome(urlArquivo, nomeDownload);
+      // Download sempre em PDF via backend (converte imagem→PDF no servidor).
+      await baixarArquivoComNome(storagePath, urlArquivo, nomeDownload);
     } catch (erroDownload) {
       // Log detalhado para diagnosticar a causa raiz (URL inválida/expirada,
       // permissão do Storage, backend indisponível ou atributos vazios).
       console.error('[download] Falha ao baixar arquivo:', {
         storagePath: storagePath || '(vazio)',
-        rawUrl: raw ? decodeURIComponent(raw) : '(vazio)',
-        urlResolvida: urlArquivo || '(vazio)',
+        rawUrl: urlArquivo || '(vazio)',
         nomeDownload,
         erro: erroDownload?.message || String(erroDownload),
       });
@@ -1491,11 +1497,22 @@ function coletarArquivosDosRegistros(registros) {
       : (typeof registro?.arquivos === 'string' && registro.arquivos ? [{ url: registro.arquivos }] : []);
 
     return arquivos
-      .filter((arquivo) => validarUrl(arquivo?.url || arquivo))
-      .map((arquivo, indice) => ({
-        url: arquivo?.url || arquivo,
-        nome: obterNomeArquivoEnviado(arquivo, registro, indice, arquivos.length)
-      }));
+      .filter((arquivo) => {
+        const url = arquivo?.url || arquivo;
+        const caminho = typeof arquivo?.caminho === 'string' ? arquivo.caminho.trim() : '';
+        return (typeof url === 'string' && validarUrl(url)) || caminho.length > 0;
+      })
+      .map((arquivo, indice) => {
+        const url = typeof arquivo?.url === 'string' ? arquivo.url : (typeof arquivo === 'string' ? arquivo : '');
+        const caminho = (typeof arquivo?.caminho === 'string' && arquivo.caminho.trim())
+          ? arquivo.caminho.trim()
+          : extrairCaminhoStorageDeUrlFront(url);
+        return {
+          url,
+          caminho,
+          nome: obterNomeArquivoEnviado(arquivo, registro, indice, arquivos.length)
+        };
+      });
   });
 }
 
@@ -1546,8 +1563,9 @@ async function baixarPdfsFiltrados() {
     const nomesUsados = new Set();
 
     for (const arquivo of arquivos) {
-      const blob = await baixarBlobParaZip(arquivo.url, arquivo.nome, backendsZipDisponiveis);
-      let nome = arquivo.nome;
+      const nomePdf = garantirNomePdfDownload(arquivo.nome);
+      const blob = await baixarBlobParaZip(arquivo.caminho || '', arquivo.url, nomePdf, backendsZipDisponiveis);
+      let nome = nomePdf;
       if (nomesUsados.has(nome)) {
         const base = nome.replace(/\.pdf$/i, '');
         let i = 2;

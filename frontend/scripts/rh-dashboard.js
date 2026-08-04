@@ -215,7 +215,8 @@ function montarNomePdfPorRegistro(record, indice = 0, totalArquivos = 1) {
 function obterNomeArquivoEnviado(arquivo, record, indice, totalArquivos) {
   const nomeArquivoSalvo = typeof arquivo?.nome === 'string' ? arquivo.nome.trim() : '';
   if (nomeArquivoSalvo) {
-    return nomeArquivoSalvo;
+    // O download é sempre PDF; normaliza a extensão exibida para .pdf.
+    return nomeArquivoSalvo.replace(/\.[^./\\]+$/, '') + '.pdf';
   }
 
   return montarNomePdfPorRegistro(record, indice, totalArquivos);
@@ -294,41 +295,60 @@ function dispararDownloadLink(href, nomeDownload) {
   linkTemporario.remove();
 }
 
-async function baixarArquivoComNome(urlArquivo, nomeDownload) {
-  const nomeSeguro = sanitizarNomeArquivoDownload(nomeDownload);
-  // Download via blob local: baixa direto pro computador, SEM abrir aba nova,
-  // mesmo a URL sendo de outro domínio (storage.googleapis.com). Cria um <a>
-  // temporário com download=nome e href=blob, dispara .click() e revoga.
-  try {
-    const resposta = await fetch(urlArquivo, { credentials: 'omit' });
-    if (resposta.ok) {
-      const blob = await resposta.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      dispararDownloadLink(objectUrl, nomeSeguro);
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
-      return;
-    }
-  } catch {
-    // fetch direto falhou (CORS). Tenta o proxy do backend (mesma origem,
-    // Content-Disposition: attachment) — também via blob, sem abrir aba.
-  }
-  try {
-    const caminho = extrairCaminhoStorageDeUrlFront(urlArquivo);
-    if (caminho) {
+// Garante que o nome final tenha extensão .pdf (o backend sempre entrega PDF).
+function garantirNomePdfDownload(nome) {
+  const base = sanitizarNomeArquivoDownload(nome);
+  return base.replace(/\.[^./\\]+$/, '') + '.pdf';
+}
+
+// Baixa um arquivo forçando PDF. Quando há caminho de Storage, usa SEMPRE o
+// proxy backend /api/arquivos/download — ele detecta imagem e converte para
+// PDF no servidor, entregando com Content-Type application/pdf e
+// Content-Disposition attachment. Nunca baixa a imagem crua.
+async function baixarArquivoComNome(caminhoStorage, urlArquivo, nomeDownload) {
+  const nomePdf = garantirNomePdfDownload(nomeDownload);
+
+  // 1) Caminho canônico: proxy backend (converte imagem→PDF, força download).
+  const caminho = caminhoStorage || extrairCaminhoStorageDeUrlFront(urlArquivo || '');
+  if (caminho) {
+    try {
       const proxyUrl = `${obterBackendConfigurado()}/api/arquivos/download?caminho=${encodeURIComponent(caminho)}`;
       const resp = await fetch(proxyUrl, { credentials: 'omit' });
       if (resp.ok) {
         const blob = await resp.blob();
         const objectUrl = URL.createObjectURL(blob);
-        dispararDownloadLink(objectUrl, nomeSeguro);
+        dispararDownloadLink(objectUrl, nomePdf);
         setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
         return;
       }
+    } catch {
+      // segue para o fallback por URL abaixo
     }
-  } catch {
-    // Último recurso: navega com download attr (pode abrir aba se cross-origin).
   }
-  dispararDownloadLink(montarUrlForcarDownload(urlArquivo, nomeSeguro), nomeSeguro);
+
+  // 2) Fallback: só há URL pública (sem caminho). Roteia pela rota de proxy por
+  // URL do backend, que também converte imagem→PDF antes de servir.
+  if (urlArquivo) {
+    try {
+      const proxyPorUrl = `${obterBackendConfigurado()}/api/arquivos/proxy?url=${encodeURIComponent(urlArquivo)}&nome=${encodeURIComponent(nomePdf)}`;
+      const resp = await fetch(proxyPorUrl, { credentials: 'omit' });
+      if (resp.ok) {
+        const blob = await resp.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        dispararDownloadLink(objectUrl, nomePdf);
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
+        return;
+      }
+    } catch {
+      // último recurso abaixo
+    }
+    // 3) Último recurso: navega direto pra URL (pode servir imagem crua, mas
+    // evita falha total quando o backend está indisponível).
+    dispararDownloadLink(montarUrlForcarDownload(urlArquivo, nomePdf), nomePdf);
+    return;
+  }
+
+  throw new Error('Sem caminho de Storage nem URL para download.');
 }
 
 function ativarDownloadComNome() {
@@ -341,28 +361,24 @@ function ativarDownloadComNome() {
     event.preventDefault();
 
     const raw = link.getAttribute('data-raw-url') || '';
-    const storagePath = link.getAttribute('data-storage-path') || '';
-    let urlArquivo = raw ? decodeURIComponent(raw) : '';
+    const storagePathAttr = link.getAttribute('data-storage-path') || '';
+    const storagePath = storagePathAttr ? decodeURIComponent(storagePathAttr) : '';
+    const urlArquivo = raw ? decodeURIComponent(raw) : '';
     const nomeCodificado = link.getAttribute('data-download-name') || '';
     const nomeDownload = nomeCodificado ? decodeURIComponent(nomeCodificado) : (link.getAttribute('download') || 'arquivo.pdf');
 
     try {
-      // Se há caminho de Storage, sempre gera signed URL (opção B). A URL
-      // pública direta só é usada como último recurso quando não há caminho.
-      if (storagePath) {
-        urlArquivo = await obterUrlAssinadaStorage(decodeURIComponent(storagePath));
-      }
-      if (!urlArquivo) {
+      if (!storagePath && !urlArquivo) {
         throw new Error('Arquivo sem URL nem caminho de Storage (data-raw-url e data-storage-path vazios).');
       }
-      await baixarArquivoComNome(urlArquivo, nomeDownload);
+      // Download sempre em PDF via backend (converte imagem→PDF no servidor).
+      await baixarArquivoComNome(storagePath, urlArquivo, nomeDownload);
     } catch (erroDownload) {
       // Log detalhado para diagnosticar a causa raiz (URL inválida/expirada,
       // permissão do Storage, backend indisponível ou atributos vazios).
       console.error('[download] Falha ao baixar arquivo:', {
         storagePath: storagePath || '(vazio)',
-        rawUrl: raw ? decodeURIComponent(raw) : '(vazio)',
-        urlResolvida: urlArquivo || '(vazio)',
+        rawUrl: urlArquivo || '(vazio)',
         nomeDownload,
         erro: erroDownload?.message || String(erroDownload),
       });
