@@ -98,7 +98,13 @@ async function buscarTodosEnvios() {
     if (!erroPermissaoFirestore(err)) throw err;
     const backendUrl = resolverBackendUrl();
     if (!backendUrl) throw new Error('Sem acesso ao Firestore e backend não configurado.');
-    const resp = await fetch(`${backendUrl}/api/envios?limit=10000`);
+    // GET /api/envios exige usuário aprovado → envia token AAD renovado.
+    const token = typeof window.obterTokenAAD === 'function'
+      ? await window.obterTokenAAD()
+      : String(localStorage.getItem('rh_auth_token') || '').trim();
+    const resp = await fetch(`${backendUrl}/api/envios?limit=10000`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+    });
     if (!resp.ok) throw new Error(`Backend retornou ${resp.status}`);
     const dados = await resp.json();
     return Array.isArray(dados) ? dados : [];

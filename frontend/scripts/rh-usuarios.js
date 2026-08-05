@@ -42,7 +42,11 @@ const BACKEND_URL = resolverBackendUrl();
 // Requisição autenticada à API (token AAD no header). Moderação de usuários
 // é feita server-side com Admin SDK — o client não escreve mais em usuarios_rh.
 async function requisicaoApiJson(path, options = {}) {
-  const token = localStorage.getItem('rh_auth_token') || '';
+  // Renova o token AAD silenciosamente (evita 401 por idToken expirado).
+  // Fallback para o token em cache se obterTokenAAD não estiver disponível.
+  const token = typeof window.obterTokenAAD === 'function'
+    ? await window.obterTokenAAD()
+    : (localStorage.getItem('rh_auth_token') || '');
   const resposta = await fetch(`${BACKEND_URL}${path}`, {
     ...options,
     headers: {

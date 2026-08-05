@@ -1,15 +1,16 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%235fbe4a'/%3E%3Cpath d='M14 34h36v8H14zM14 22h36v8H14z' fill='white'/%3E%3C/svg%3E" />
-  <title>Aprovação de Usuários RH</title>
+  <title>RH - Aprovação de Usuários</title>
   <link rel="stylesheet" href="../styles/styles.css" />
+  <script src="../scripts/rh-access-guard.js"></script>
 </head>
 <body>
   <header class="top-header">
@@ -17,95 +18,62 @@
       <img src="../assets/logo-normatel.png" alt="Normatel Engenharia" class="logo-normatel" />
     </div>
   </header>
-  <main class="container main-content">
-    <section class="card">
+
+  <main class="container main-content admin-main">
+    <section class="page-head admin-page-head">
       <h1>Aprovação de Usuários</h1>
-      <div id="mensagemAprovacao" class="status-message status-toast"></div>
-      <div id="usuariosPendentes"></div>
+      <p class="page-subtitle">Cadastros pendentes para liberação no painel RH.</p>
+    </section>
+
+    <section class="card admin-overview-card">
+      <div class="admin-top-actions">
+        <div class="rh-list-btn-group">
+          <button type="button" id="voltarPainelBtn" class="rh-admin-btn">Voltar ao Painel RH</button>
+          <button type="button" id="sairRhBtn" class="rh-logout-btn">Sair</button>
+        </div>
+      </div>
+
+      <div class="admin-stats-grid">
+        <article class="admin-stat-card">
+          <span class="admin-stat-label">Pendentes de aprovação</span>
+          <strong class="admin-stat-number" id="totalPendentes">0</strong>
+        </article>
+      </div>
+
+      <p id="usuariosStatus" class="status-message status-message--info status-toast">Carregando pendências...</p>
+    </section>
+
+    <section class="card admin-list-card">
+      <div class="admin-list-header">
+        <h2>Usuários pendentes</h2>
+      </div>
+
+      <div id="usuariosPendentes" class="admin-usuarios-lista"></div>
+    </section>
+
+    <section class="card admin-list-card">
+      <div class="admin-list-header">
+        <h2>Gerenciar cargos</h2>
+        <p class="admin-list-sub">Altere o cargo de usuários já aprovados.</p>
+      </div>
+
+      <p id="cargosStatus" class="status-message status-message--info status-toast hidden"></p>
+      <div id="usuariosAprovados" class="admin-usuarios-lista">
+        <div class="status-vazio">Carregando usuários...</div>
+      </div>
     </section>
   </main>
+
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-  <script>
-    // Configuração do Firebase
-    const firebaseConfig = {
-      apiKey: "AIzaSyCWLQteC_iYmUi_0DVEsUb5kCdki5e13bs",
-      authDomain: "normatel-rh.firebaseapp.com",
-      projectId: "normatel-rh"
-    };
-    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
-
-    const _docIds = new Map();
-
-    async function aprovarUsuario(chave) {
-      const docId = _docIds.get(chave);
-      if (!docId) return;
-      try {
-        await db.collection('usuarios_rh').doc(docId).update({ status: 'aprovado' });
-        mostrarMensagem('Usuário aprovado com sucesso!', 'success');
-        carregarPendentes();
-      } catch (e) {
-        mostrarMensagem('Erro ao aprovar usuário: ' + e.message, 'error');
-      }
-    }
-
-    function mostrarMensagem(msg, tipo = 'info') {
-      const el = document.getElementById('mensagemAprovacao');
-      el.textContent = msg;
-      el.className = 'status-message status-toast';
-      if (tipo === 'success') el.classList.add('status-message--success');
-      if (tipo === 'error') el.classList.add('status-message--error');
-      setTimeout(() => { el.textContent = ''; el.className = 'status-message status-toast'; }, 4000);
-    }
-
-    async function carregarPendentes() {
-      const container = document.getElementById('usuariosPendentes');
-      container.textContent = 'Carregando...';
-      _docIds.clear();
-      const snap = await db.collection('usuarios_rh').where('status', '==', 'pendente').get();
-      if (snap.empty) {
-        container.textContent = '';
-        const vazio = document.createElement('div');
-        vazio.className = 'status-vazio';
-        vazio.textContent = 'Nenhum usuário pendente de aprovação.';
-        container.appendChild(vazio);
-        return;
-      }
-      container.textContent = '';
-      snap.forEach((doc, idx) => {
-        const u = doc.data();
-        const chave = `u${idx}`;
-        _docIds.set(chave, doc.id);
-
-        const div = document.createElement('div');
-        div.className = 'usuario-item';
-
-        const info = document.createElement('div');
-        info.className = 'usuario-info';
-        const nome = document.createElement('div');
-        nome.className = 'usuario-nome';
-        nome.textContent = u.nome || u.email || '';
-        const email = document.createElement('div');
-        email.className = 'usuario-email';
-        email.textContent = u.email || '';
-        info.appendChild(nome);
-        info.appendChild(email);
-
-        const btn = document.createElement('button');
-        btn.className = 'btn-aprovar';
-        btn.textContent = 'Aprovar';
-        btn.addEventListener('click', () => aprovarUsuario(chave));
-
-        div.appendChild(info);
-        div.appendChild(btn);
-        container.appendChild(div);
-      });
-    }
-
-    carregarPendentes();
-  </script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+  <script src="../assets/vendor/msal-browser.min.js"></script>
+  <script src="../scripts/firebase-config.js"></script>
+  <script src="../scripts/msal-config.js"></script>
+  <script src="../scripts/auth-token.js"></script>
+  <script src="../scripts/permissions.js"></script>
+  <script src="../scripts/rh-usuarios.js?v=20260522b"></script>
 </body>
 </html>
 

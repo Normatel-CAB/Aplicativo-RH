@@ -275,8 +275,11 @@ function iniciarMonitoramentoAcessoRh() {
   // Poll à API (Admin SDK) — leitura direta de usuarios_rh bloqueada por regra.
   async function verificarAcesso() {
     try {
+      const tokenAtual = typeof window.obterTokenAAD === 'function'
+        ? await window.obterTokenAAD()
+        : token;
       const resp = await fetch(`${obterBackendConfigurado()}/api/usuarios/me`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 'Authorization': `Bearer ${tokenAtual}` }
       });
       if (resp.status === 401) { forcarLogoutPorRevogacaoAcesso(); return; }
       if (!resp.ok) return;
@@ -298,7 +301,9 @@ function iniciarMonitoramentoAcessoRh() {
 
 async function requisicaoBackendJson(url, options = {}, tentativas = 2) {
   let ultimaResposta = null;
-  const token = localStorage.getItem('rh_auth_token');
+  const token = typeof window.obterTokenAAD === 'function'
+    ? await window.obterTokenAAD()
+    : localStorage.getItem('rh_auth_token');
   const opcoesComAuth = {
     ...options,
     headers: {

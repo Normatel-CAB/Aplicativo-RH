@@ -359,13 +359,15 @@
             if (modoPendente !== 'login') return false;
             if (!token) { definirMensagem('❌ Login Microsoft retornou sem token válido.', 'error'); definirBotoesAuthHabilitados(true); return true; }
 
-            // -------- FIX --------
-            // Salvar token e forçar recarregamento da página
+            // Salva a sessão e segue direto para a verificação/redirect abaixo.
+            // NÃO recarregar a página aqui: o reload consumia o retorno do MSAL
+            // (handleRedirectPromise já resolvido + msal_pending_login limpo),
+            // deixando todo o fluxo de redirect abaixo como código morto — era a
+            // causa do login que "carrega e nunca conclui".
             salvarSessao(account, token, 'login_microsoft');
             await ativarFirebaseAuthComTokenMsal(loginResponse);
             await sincronizarRoleParaLocalStorage(email);
             definirMensagem(`✅ Login bem-sucedido como ${nome}`, 'success');
-            window.location.reload();
 
             const verificacao = await comTimeout(verificarUsuarioCadastradoComFallback(email), 'VERIFICACAO_USUARIO', 12000);
             if (!verificacao.existe) { definirMensagem('⚠️ Primeiro acesso detectado. Clique em "Cadastrar com Microsoft" para continuar.', 'error'); document.getElementById('loginBtn').disabled = false; document.getElementById('registerBtn').disabled = false; return true; }

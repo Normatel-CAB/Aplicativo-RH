@@ -601,7 +601,9 @@ async function requisicaoBackendJson(path, options = {}, tentativas = 2) {
   let ultimaResposta = null;
   const endpoint = BACKEND_URL ? `${BACKEND_URL}${path}` : path;
 
-  const token = obterTokenArmazenado();
+  const token = typeof window.obterTokenAAD === 'function'
+    ? await window.obterTokenAAD()
+    : obterTokenArmazenado();
   const opcoesComAuth = {
     ...options,
     headers: {
