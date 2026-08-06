@@ -227,30 +227,23 @@ function iniciarMonitoramentoAcessoRh() {
 }
 
 async function carregarEnviosComFallback() {
-  try {
-    const snapshot = await window.firebase.firestore().collection('envios_atestados').get();
-    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-  } catch (error) {
-    if (!erroPermissaoFirestore(error)) {
-      throw error;
-    }
-
-    const backends = listarBackendsCandidatos();
-    if (!backends.length) {
-      throw new Error('Sem permissão no Firestore para ler envios_atestados. Publique regras no Firebase Console liberando leitura desta coleção para o painel RH.');
-    }
-
-    for (const backendBase of backends) {
-      try {
-        const dados = await requisicaoBackendJson(`${backendBase}/api/envios?limit=10000`);
-        return Array.isArray(dados) ? dados : [];
-      } catch {
-        // tenta próximo backend candidato
-      }
-    }
-
-    throw new Error(`Backends indisponíveis (${backends.join(', ')}) e Firestore sem permissão para envios_atestados.`);
+  // Lê SEMPRE via backend autenticado (GET /api/envios exige usuário aprovado).
+  // Não lê mais envios_atestados direto do Firestore — a regra é allow read: if false.
+  const backends = listarBackendsCandidatos();
+  if (!backends.length) {
+    throw new Error('Backend não configurado para ler envios.');
   }
+
+  for (const backendBase of backends) {
+    try {
+      const dados = await requisicaoBackendJson(`${backendBase}/api/envios?limit=10000`);
+      return Array.isArray(dados) ? dados : [];
+    } catch {
+      // tenta próximo backend candidato
+    }
+  }
+
+  throw new Error(`Backends indisponíveis (${backends.join(', ')}).`);
 }
 
 function setDetalhesStatus(texto, tipo = 'info') {
@@ -1308,6 +1301,22 @@ function dispararDownloadLink(href, nomeDownload) {
   link.remove();
 }
 
+// Fetch autenticado para download binário. /api/arquivos/download e /proxy
+// exigem usuário aprovado no backend — reusa o token AAD, igual requisicaoBackendJson.
+async function fetchArquivoBackend(url, options = {}) {
+  const token = typeof window.obterTokenAAD === 'function'
+    ? await window.obterTokenAAD()
+    : String(localStorage.getItem('rh_auth_token') || '').trim();
+  return fetch(url, {
+    credentials: 'omit',
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    },
+  });
+}
+
 // Baixa um arquivo forçando PDF. Usa SEMPRE o proxy backend, que detecta
 // imagem e converte para PDF no servidor (Content-Type application/pdf,
 // Content-Disposition attachment). Nunca baixa a imagem crua.
@@ -1319,7 +1328,7 @@ async function baixarArquivoComNome(caminhoStorage, urlArquivo, nomeDownload) {
   if (caminho) {
     try {
       const proxyUrl = `${obterBackendConfigurado()}/api/arquivos/download?caminho=${encodeURIComponent(caminho)}`;
-      const resp = await fetch(proxyUrl, { credentials: 'omit' });
+      const resp = await fetchArquivoBackend(proxyUrl);
       if (resp.ok) {
         const blob = await resp.blob();
         const objectUrl = URL.createObjectURL(blob);
@@ -1336,7 +1345,7 @@ async function baixarArquivoComNome(caminhoStorage, urlArquivo, nomeDownload) {
   if (urlArquivo) {
     try {
       const proxyPorUrl = `${obterBackendConfigurado()}/api/arquivos/proxy?url=${encodeURIComponent(urlArquivo)}&nome=${encodeURIComponent(nomePdf)}`;
-      const resp = await fetch(proxyPorUrl, { credentials: 'omit' });
+      const resp = await fetchArquivoBackend(proxyPorUrl);
       if (resp.ok) {
         const blob = await resp.blob();
         const objectUrl = URL.createObjectURL(blob);
@@ -1438,7 +1447,7 @@ async function baixarBlobParaZip(caminhoStorage, urlArquivo, nomeArquivo, backen
       ? `${backendBase}/api/arquivos/download?caminho=${encodeURIComponent(caminho)}`
       : `${backendBase}/api/arquivos/proxy?url=${encodeURIComponent(urlArquivo)}&nome=${encodeURIComponent(nomeArquivo)}`;
     try {
-      const respostaProxy = await fetch(proxyUrl, { credentials: 'omit' });
+      const respostaProxy = await fetchArquivoBackend(proxyUrl);
       if (respostaProxy.ok) {
         return await respostaProxy.blob();
       }

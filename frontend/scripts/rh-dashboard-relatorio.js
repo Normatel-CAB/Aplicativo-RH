@@ -91,24 +91,20 @@ async function carregarAtestados() {
 }
 
 async function buscarTodosEnvios() {
-  try {
-    const snapshot = await window.firebase.firestore().collection('envios_atestados').get();
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  } catch (err) {
-    if (!erroPermissaoFirestore(err)) throw err;
-    const backendUrl = resolverBackendUrl();
-    if (!backendUrl) throw new Error('Sem acesso ao Firestore e backend não configurado.');
-    // GET /api/envios exige usuário aprovado → envia token AAD renovado.
-    const token = typeof window.obterTokenAAD === 'function'
-      ? await window.obterTokenAAD()
-      : String(localStorage.getItem('rh_auth_token') || '').trim();
-    const resp = await fetch(`${backendUrl}/api/envios?limit=10000`, {
-      headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-    });
-    if (!resp.ok) throw new Error(`Backend retornou ${resp.status}`);
-    const dados = await resp.json();
-    return Array.isArray(dados) ? dados : [];
-  }
+  // Lê SEMPRE via backend autenticado (GET /api/envios exige usuário aprovado).
+  // Não lê mais envios_atestados direto do Firestore — a regra é allow read: if false.
+  const backendUrl = resolverBackendUrl();
+  if (!backendUrl) throw new Error('Backend não configurado para ler envios.');
+  // GET /api/envios exige usuário aprovado → envia token AAD renovado.
+  const token = typeof window.obterTokenAAD === 'function'
+    ? await window.obterTokenAAD()
+    : String(localStorage.getItem('rh_auth_token') || '').trim();
+  const resp = await fetch(`${backendUrl}/api/envios?limit=10000`, {
+    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+  });
+  if (!resp.ok) throw new Error(`Backend retornou ${resp.status}`);
+  const dados = await resp.json();
+  return Array.isArray(dados) ? dados : [];
 }
 
 function erroPermissaoFirestore(error) {

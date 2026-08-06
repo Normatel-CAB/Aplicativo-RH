@@ -103,56 +103,66 @@
   }
 
   async function salvar(dados) {
-    const fs = db();
-    if (!fs) throw new Error('Firebase indisponível');
-
-    const agora = new Date().toISOString();
-    const email = localStorage.getItem('rh_user_email') || '';
+    const backendBase = typeof obterBackendConfigurado === 'function'
+      ? obterBackendConfigurado() : null;
+    if (!backendBase) throw new Error('Backend não configurado.');
 
     if (_editandoId) {
-      await fs.collection(COLECAO).doc(_editandoId).set(
-        { ...dados, atualizado_em: agora },
-        { merge: true }
+      await requisicaoBackendJson(
+        `${backendBase}/api/projetos/${encodeURIComponent(_editandoId)}`,
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nome: dados.nome }) },
       );
     } else {
-      // ID = nome do projeto (sem barras, espaços normalizados)
-      const id = dados.nome.trim().replace(/\//g, '-').replace(/\s+/g, ' ');
-      await fs.collection(COLECAO).doc(id).set({
-        ...dados,
-        id,
-        criado_em:  agora,
-        atualizado_em: agora,
-        criado_por: email,
-        excluido:   false
-      });
+      const email = localStorage.getItem('rh_user_email') || '';
+      await requisicaoBackendJson(
+        `${backendBase}/api/projetos`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nome: dados.nome, criado_por: email }) },
+      );
     }
   }
 
   async function excluir(id) {
-    const fs = db();
-    if (!fs) throw new Error('Firebase indisponível');
-    await fs.collection(COLECAO).doc(id).set(
-      { excluido: true, excluido_em: new Date().toISOString() },
-      { merge: true }
+    const backendBase = typeof obterBackendConfigurado === 'function'
+      ? obterBackendConfigurado() : null;
+    if (!backendBase) throw new Error('Backend não configurado.');
+    await requisicaoBackendJson(
+      `${backendBase}/api/projetos/${encodeURIComponent(id)}`,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ excluido: true }) },
     );
   }
 
   // ── contagem de atestados por projeto ──────────────────────────────────────
-  // Usa query filtrada por código para evitar carregar toda a coleção
+  // Lê via backend autenticado (GET /api/envios exige usuário aprovado) — não lê
+  // mais envios_atestados direto do Firestore (regra allow read: if false). Busca
+  // a lista uma vez e reaproveita para contar todos os cards. Reusa os globais
+  // requisicaoBackendJson/obterBackendConfigurado (rh-dashboard.js, mesma página).
+  let _cacheEnvios = null;
+  async function obterEnviosParaContagem() {
+    if (Array.isArray(_cacheEnvios)) return _cacheEnvios;
+    if (typeof requisicaoBackendJson !== 'function' ||
+        typeof obterBackendConfigurado !== 'function') return [];
+    try {
+      const backendBase = obterBackendConfigurado();
+      const dados = await requisicaoBackendJson(`${backendBase}/api/envios?limit=10000`);
+      _cacheEnvios = Array.isArray(dados) ? dados : [];
+    } catch {
+      _cacheEnvios = [];
+    }
+    return _cacheEnvios;
+  }
+
   async function contarAtestados(codigoProjeto) {
-    const fs = db();
-    if (!fs || !codigoProjeto) return 0;
+    if (!codigoProjeto) return 0;
     try {
       const codigo = String(codigoProjeto);
-      // Projetos padrão têm código numérico — filtramos pelos valores possíveis no campo projeto
-      // (ex: "Projeto 736 - Base Imbetiba" contém "736")
-      // Firestore não suporta LIKE; usamos range query para prefixo
+      // Ex.: código "736" casa "Projeto 736 - Base Imbetiba".
       const prefixo = /^\d+$/.test(codigo) ? `Projeto ${codigo}` : codigo;
-      const snap = await fs.collection('envios_atestados')
-        .where('projeto', '>=', prefixo)
-        .where('projeto', '<', prefixo + '')
-        .get();
-      return snap.docs.filter(d => !d.data().excluido).length;
+      const lista = await obterEnviosParaContagem();
+      return lista.filter((r) =>
+        !r.excluido && String(r.projeto || '').startsWith(prefixo)).length;
     } catch { return 0; }
   }
 

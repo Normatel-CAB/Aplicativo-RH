@@ -135,7 +135,11 @@ service cloud.firestore {
     //   sem exigência de Firebase Auth pelo mesmo motivo acima
     // - Delete permanente: bloqueado; app usa apenas soft-delete (excluido: true)
     match /envios_atestados/{envioDoc} {
-      allow read: if true;
+      // Leitura fechada: o painel RH lê via backend autenticado (GET /api/envios,
+      // exige usuário aprovado). Nenhum cliente lê esta coleção direto do
+      // Firestore. request.auth é sempre null (login via MSAL/Entra ID, não
+      // Firebase Auth), então qualquer regra baseada em request.auth vazaria.
+      allow read: if false;
       allow create: if isEnvioValido();
       allow update: if isAtualizacaoAtendimentoEnvioValida()
                   || isSoftDeleteEnvioValido()
@@ -156,25 +160,21 @@ service cloud.firestore {
     
     // Projetos:
     // - Leitura: permitida para todos (colaboradores precisam ver sem Firebase Auth)
-    // - Create/Update: público com validação — RH autentica via MSAL, não Firebase Auth
-    // - Delete permanente: bloqueado; app usa soft-delete (excluido: true)
+    // - Create/Update: bloqueado no cliente; ocorre via backend autenticado
+    //   (POST /api/projetos, PUT /api/projetos/:id — exigem usuário aprovado)
+    // - Delete permanente: bloqueado; app usa soft-delete via backend
     match /projetos/{projetoDoc} {
       allow read: if true;
-      allow create: if request.resource.data.nome is string
-                  && request.resource.data.nome.size() > 0
-                  && request.resource.data.nome.size() <= 200;
-      allow update: if request.resource.data.nome is string
-                  && request.resource.data.nome.size() > 0
-                  && request.resource.data.nome.size() <= 200;
+      allow create, update: if false;
       allow delete: if false;
     }
-    
-    // Logs de auditoria (quem marcou feito / quem excluiu):
-    // - Leitura: permitida para todos (painel RH usa MSAL, sem Firebase Auth)
-    // - Create: escrita pública com validação mínima
+
+    // Logs de auditoria:
+    // - Leitura: bloqueada; nenhuma tela lê logs direto do Firestore
+    // - Create: escrita pública com validação mínima (rh-projeto.js via SDK)
     // - Update/Delete: bloqueado; logs são imutáveis
     match /logs_auditoria/{logDoc} {
-      allow read: if true;
+      allow read: if false;
       allow create: if request.resource.data.keys().hasAll(['acao', 'criado_em'])
                   && request.resource.data.acao is string
                   && request.resource.data.acao.size() > 0

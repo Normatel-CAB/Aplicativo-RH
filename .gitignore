@@ -19,3 +19,5 @@ service-account*.json
 backend/data/
 *.json.json
 firebase-debug.log
+.vercel
+.env*
