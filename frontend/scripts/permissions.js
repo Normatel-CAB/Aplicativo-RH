@@ -92,7 +92,13 @@
   // autoritativo apenas no servidor, impedindo forjar 'admin' no client.
   function sincronizarRole() {
     return new Promise(function (resolve) {
-      var token = String(localStorage.getItem('rh_auth_token') || '').trim();
+      // Renova o token AAD (evita role desatualizada por idToken expirado).
+      var obterToken = typeof global.obterTokenAAD === 'function'
+        ? global.obterTokenAAD()
+        : Promise.resolve(String(localStorage.getItem('rh_auth_token') || '').trim());
+
+      obterToken.then(function (token) {
+      token = String(token || '').trim();
       if (!token) { resolve(getRole()); return; }
 
       try {
@@ -115,6 +121,7 @@
       } catch (_e) {
         resolve(getRole());
       }
+      }).catch(function () { resolve(getRole()); });
     });
   }
 

@@ -459,8 +459,11 @@ function iniciarMonitoramentoAcessoRh() {
   // usuarios_rh está bloqueada por regra. Revoga acesso se reprovado/removido.
   async function verificarAcesso() {
     try {
+      const tokenAtual = typeof window.obterTokenAAD === 'function'
+        ? await window.obterTokenAAD()
+        : token;
       const resp = await fetch(`${obterBackendConfigurado()}/api/usuarios/me`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 'Authorization': `Bearer ${tokenAtual}` }
       });
       if (resp.status === 401) { forcarLogoutPorRevogacaoAcesso(); return; }
       if (!resp.ok) return;
@@ -491,8 +494,20 @@ function iniciarMonitoramentoAcessoRh() {
 async function requisicaoBackendJson(url, options = {}, tentativas = 2) {
   let ultimaResposta = null;
 
+  // GET /api/envios exige usuário aprovado no backend → precisa do token AAD.
+  const token = typeof window.obterTokenAAD === 'function'
+    ? await window.obterTokenAAD()
+    : String(localStorage.getItem('rh_auth_token') || '').trim();
+  const opcoesComAuth = {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    },
+  };
+
   for (let i = 0; i <= tentativas; i += 1) {
-    const resposta = await fetch(url, options);
+    const resposta = await fetch(url, opcoesComAuth);
     ultimaResposta = resposta;
 
     if (resposta.ok) {

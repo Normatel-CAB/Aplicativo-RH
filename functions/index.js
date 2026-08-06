@@ -563,27 +563,40 @@ async function obterAadJwks() {
   return _aadJwks;
 }
 
-// Valida ASSINATURA do id_token Entra ID (JWKS remoto) e confere ADMIN_EMAILS.
+// Valida ASSINATURA do id_token Entra ID (JWKS remoto) e autoriza como admin se
+// o email estiver em ADMIN_EMAILS OU tiver role:admin (aprovado) no Firestore.
 // Fallback: token estático forte X-Admin-Token. Fail-closed.
+//
+// A checagem no Firestore garante que a autorização não dependa exclusivamente
+// da env var ADMIN_EMAILS estar setada no deploy — se ela sumir, os admins
+// reais (role:admin) continuam funcionando e a tela de usuários não quebra.
 async function verificarTokenAdmin(req) {
-  const adminEmails = String(process.env.ADMIN_EMAILS || "")
-      .split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
-
   const authHeader = String(req.headers["authorization"] || "").trim();
-  if (adminEmails.length > 0 && authHeader.startsWith("Bearer ")) {
-    try {
-      const {jwtVerify} = await import("jose");
-      const jwks = await obterAadJwks();
-      const {payload} = await jwtVerify(authHeader.slice(7), jwks, {
-        issuer: AAD_ISSUER,
-        audience: AAD_CLIENT_ID,
-      });
-      const email = String(
-          payload.preferred_username || payload.email || payload.upn || "",
-      ).toLowerCase();
-      return Boolean(email) && adminEmails.includes(email);
-    } catch {
-      return false;
+  if (authHeader.startsWith("Bearer ")) {
+    const email = await obterEmailUsuarioAutenticado(req);
+    if (email) {
+      const adminEmails = String(process.env.ADMIN_EMAILS || "")
+          .split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+      if (adminEmails.includes(email)) return true;
+
+      // Sem ADMIN_EMAILS (ou email fora dela): consulta cargo no Firestore.
+      try {
+        const db = await obterFirestoreObrigatorio();
+        const snapshot = await db.collection(FIRESTORE_COLLECTIONS.usuarios)
+            .where("email", "==", email)
+            .limit(1)
+            .get();
+        if (!snapshot.empty) {
+          const usuario = snapshot.docs[0].data() || {};
+          const aprovado = usuario.aprovado === true ||
+            String(usuario.status || "").toLowerCase() === "aprovado";
+          const ehAdmin =
+            String(usuario.role || "").toLowerCase() === "admin";
+          if (aprovado && ehAdmin) return true;
+        }
+      } catch (e) {
+        logger.error("Erro ao verificar admin no Firestore", e);
+      }
     }
   }
 

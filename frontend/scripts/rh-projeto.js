@@ -81,10 +81,23 @@ let cacheBackendsZipAtualizadoEm = 0;
 async function requisicaoBackendJson(url, options = {}, tentativas = 2) {
   let ultimaResposta = null;
 
+  // Injeta o token AAD renovado. Rotas /api/envios (leitura) e as de moderação
+  // (excluir/restaurar/status) exigem Authorization no backend — sem isto, 401.
+  const token = typeof window.obterTokenAAD === 'function'
+    ? await window.obterTokenAAD()
+    : String(localStorage.getItem('rh_auth_token') || '').trim();
+  const opcoesComAuth = {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    },
+  };
+
   for (let i = 0; i <= tentativas; i += 1) {
     let resposta;
     try {
-      resposta = await fetch(url, options);
+      resposta = await fetch(url, opcoesComAuth);
     } catch {
       if (i === tentativas) {
         throw new Error('BACKEND_UNREACHABLE');
@@ -189,8 +202,11 @@ function iniciarMonitoramentoAcessoRh() {
   // Poll à API (Admin SDK) — leitura direta de usuarios_rh bloqueada por regra.
   async function verificarAcesso() {
     try {
+      const tokenAtual = typeof window.obterTokenAAD === 'function'
+        ? await window.obterTokenAAD()
+        : token;
       const resp = await fetch(`${obterBackendConfigurado()}/api/usuarios/me`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 'Authorization': `Bearer ${tokenAtual}` }
       });
       if (resp.status === 401) { forcarLogoutPorRevogacaoAcesso(); return; }
       if (!resp.ok) return;
