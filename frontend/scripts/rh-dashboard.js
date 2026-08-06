@@ -301,6 +301,22 @@ function garantirNomePdfDownload(nome) {
   return base.replace(/\.[^./\\]+$/, '') + '.pdf';
 }
 
+// Fetch autenticado para download binário. /api/arquivos/download e /proxy
+// exigem usuário aprovado no backend — reusa o token AAD, igual requisicaoBackendJson.
+async function fetchArquivoBackend(url, options = {}) {
+  const token = typeof window.obterTokenAAD === 'function'
+    ? await window.obterTokenAAD()
+    : String(localStorage.getItem('rh_auth_token') || '').trim();
+  return fetch(url, {
+    credentials: 'omit',
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    },
+  });
+}
+
 // Baixa um arquivo forçando PDF. Quando há caminho de Storage, usa SEMPRE o
 // proxy backend /api/arquivos/download — ele detecta imagem e converte para
 // PDF no servidor, entregando com Content-Type application/pdf e
@@ -313,7 +329,7 @@ async function baixarArquivoComNome(caminhoStorage, urlArquivo, nomeDownload) {
   if (caminho) {
     try {
       const proxyUrl = `${obterBackendConfigurado()}/api/arquivos/download?caminho=${encodeURIComponent(caminho)}`;
-      const resp = await fetch(proxyUrl, { credentials: 'omit' });
+      const resp = await fetchArquivoBackend(proxyUrl);
       if (resp.ok) {
         const blob = await resp.blob();
         const objectUrl = URL.createObjectURL(blob);
@@ -331,7 +347,7 @@ async function baixarArquivoComNome(caminhoStorage, urlArquivo, nomeDownload) {
   if (urlArquivo) {
     try {
       const proxyPorUrl = `${obterBackendConfigurado()}/api/arquivos/proxy?url=${encodeURIComponent(urlArquivo)}&nome=${encodeURIComponent(nomePdf)}`;
-      const resp = await fetch(proxyPorUrl, { credentials: 'omit' });
+      const resp = await fetchArquivoBackend(proxyPorUrl);
       if (resp.ok) {
         const blob = await resp.blob();
         const objectUrl = URL.createObjectURL(blob);
@@ -533,26 +549,14 @@ async function requisicaoBackendJson(url, options = {}, tentativas = 2) {
 }
 
 async function carregarEnviosComFallback() {
-  try {
-    const snapshot = await window.firebase.firestore().collection('envios_atestados').get();
-    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-  } catch (error) {
-    if (!erroPermissaoFirestore(error)) {
-      throw error;
-    }
-
-    const backendBase = obterBackendConfigurado();
-    if (!backendBase) {
-      throw new Error('Sem permissão no Firestore para ler envios_atestados. Publique regras no Firebase Console liberando leitura desta coleção para o painel RH.');
-    }
-
-    try {
-      const dados = await requisicaoBackendJson(`${backendBase}/api/envios?limit=10000`);
-      return Array.isArray(dados) ? dados : [];
-    } catch {
-      throw new Error(`Backend indisponível (${backendBase}) e Firestore sem permissão para envios_atestados.`);
-    }
+  // Lê SEMPRE via backend autenticado (GET /api/envios exige usuário aprovado).
+  // Não lê mais envios_atestados direto do Firestore — a regra é allow read: if false.
+  const backendBase = obterBackendConfigurado();
+  if (!backendBase) {
+    throw new Error('Backend não configurado para ler envios.');
   }
+  const dados = await requisicaoBackendJson(`${backendBase}/api/envios?limit=10000`);
+  return Array.isArray(dados) ? dados : [];
 }
 
 function criarLinhaRegistro(record) {

@@ -339,22 +339,14 @@ async function requisicaoBackendJson(url, options = {}, tentativas = 2) {
 }
 
 async function carregarEnviosComFallback() {
-  try {
-    const snapshot = await window.firebase.firestore().collection('envios_atestados').get();
-    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-  } catch (error) {
-    if (!erroPermissaoFirestore(error)) {
-      throw error;
-    }
-
-    const backendBase = obterBackendConfigurado();
-    if (!backendBase) {
-      throw new Error('Sem permissao no Firestore para ler envios_atestados e backend nao configurado.');
-    }
-
-    const dados = await requisicaoBackendJson(`${backendBase}/api/envios?limit=10000`);
-    return Array.isArray(dados) ? dados : [];
+  // Lê SEMPRE via backend autenticado (GET /api/envios exige usuário aprovado).
+  // Não lê mais envios_atestados direto do Firestore — a regra é allow read: if false.
+  const backendBase = obterBackendConfigurado();
+  if (!backendBase) {
+    throw new Error('Backend não configurado para ler envios.');
   }
+  const dados = await requisicaoBackendJson(`${backendBase}/api/envios?limit=10000`);
+  return Array.isArray(dados) ? dados : [];
 }
 
 function atualizarResumoGeral(registros) {
