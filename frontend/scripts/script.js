@@ -348,10 +348,10 @@ function getBackendBase() {
 async function registrarEventoBackend(acao, detalhes = {}) {
   const backendBase = getBackendBase();
   try {
-    await safeFetchJson(`${backendBase}/api/email`, {
+    await safeFetchJson(`${backendBase}/api/eventos`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ acao, detalhes, evento: 'frontend' })
+      body: JSON.stringify({ acao, detalhes, pagina: 'formulario.html' })
     });
   } catch (err) {
     console.warn('Falha ao registrar evento no backend:', err.message);

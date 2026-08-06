@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "usuarios_rh",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "aprovado", "order": "ASCENDING" },
+        { "fieldPath": "criado_em", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

@@ -950,6 +950,30 @@ async function responderApi(req, res) {
       return;
     }
 
+    if (pathname === "/api/eventos" && req.method === "POST") {
+      const body = await obterBodyJson(req);
+      const acao = normalizarTextoCurto(body.acao, 80);
+      if (!acao) {
+        res.status(400).json({error: "acao é obrigatório"});
+        return;
+      }
+
+      const evento = {
+        acao,
+        pagina: normalizarTextoCurto(body.pagina, 120),
+        email: normalizarTextoCurto(body.email, 180),
+        usuarioId: normalizarTextoCurto(body.usuarioId, 100),
+        detalhes: (body.detalhes && typeof body.detalhes === "object") ? body.detalhes : {},
+        criado_em: new Date().toISOString(),
+        criado_por_ip: ip,
+      };
+
+      const db = await obterFirestoreObrigatorio();
+      await db.collection(FIRESTORE_COLLECTIONS.eventos).add(evento);
+      res.status(201).json({ok: true});
+      return;
+    }
+
     if (pathname === "/api/usuarios/existe" && req.method === "GET") {
       const email = String(req.query.email || "").trim().toLowerCase();
       if (!email) {
