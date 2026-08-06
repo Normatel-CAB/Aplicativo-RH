@@ -550,12 +550,28 @@ function rotaExigeAdmin(pathname, metodo) {
 
 const AAD_TENANT_ID = String(process.env.AAD_TENANT_ID || "6b8311fd-897b-42b3-8ec4-bb68ddf44a01").trim();
 const AAD_CLIENT_ID = String(process.env.AAD_CLIENT_ID || "89b8bf1d-7f65-466d-81eb-150c26a0b57a").trim();
-const AAD_ISSUER = `https://login.microsoftonline.com/${AAD_TENANT_ID}/v2.0`;
+
+// Emissores aceitos: v2.0 (MSAL browser padrão) e v1.0 (sts.windows.net), pois
+// dependendo do fluxo/tenant o token pode vir em qualquer um dos dois formatos.
+const AAD_ISSUERS = [
+  `https://login.microsoftonline.com/${AAD_TENANT_ID}/v2.0`,
+  `https://sts.windows.net/${AAD_TENANT_ID}/`,
+];
+
+// Audiences aceitos: o próprio App Registration (id_token → aud = client_id) e
+// a forma "api://<client_id>" (access_token de API própria). O access_token do
+// Microsoft Graph (aud = 00000003-...) é rejeitado de propósito: não é nosso.
+const AAD_AUDIENCES = [
+  AAD_CLIENT_ID,
+  `api://${AAD_CLIENT_ID}`,
+];
+
 let _aadJwks = null;
 
 async function obterAadJwks() {
   if (!_aadJwks) {
     const {createRemoteJWKSet} = await import("jose");
+    // Endpoint de chaves comum aos dois emissores (v1/v2) do tenant.
     _aadJwks = createRemoteJWKSet(
         new URL(`https://login.microsoftonline.com/${AAD_TENANT_ID}/discovery/v2.0/keys`),
     );
@@ -615,17 +631,27 @@ async function verificarTokenAdmin(req) {
 async function obterEmailUsuarioAutenticado(req) {
   const authHeader = String(req.headers["authorization"] || "").trim();
   if (!authHeader.startsWith("Bearer ")) return "";
+  const token = authHeader.slice(7).trim();
+  if (!token) return "";
   try {
     const {jwtVerify} = await import("jose");
     const jwks = await obterAadJwks();
-    const {payload} = await jwtVerify(authHeader.slice(7), jwks, {
-      issuer: AAD_ISSUER,
-      audience: AAD_CLIENT_ID,
+    // Aceita v1 e v2 (issuer/audience em lista). jose valida assinatura, exp e
+    // que issuer/audience estejam entre os permitidos.
+    const {payload} = await jwtVerify(token, jwks, {
+      issuer: AAD_ISSUERS,
+      audience: AAD_AUDIENCES,
     });
     return String(
         payload.preferred_username || payload.email || payload.upn || "",
     ).toLowerCase();
-  } catch {
+  } catch (erro) {
+    // Loga o motivo real da rejeição (exp, aud, iss, assinatura) — antes o erro
+    // era engolido e todo 401 parecia idêntico, escondendo a causa raiz.
+    logger.warn("Falha ao validar token AAD", {
+      motivo: erro && (erro.code || erro.message || String(erro)),
+      claim: erro && erro.claim,
+    });
     return "";
   }
 }
