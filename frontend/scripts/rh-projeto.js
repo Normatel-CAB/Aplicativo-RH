@@ -226,6 +226,15 @@ function iniciarMonitoramentoAcessoRh() {
   }
 }
 
+function mensagemErroEnvios(error) {
+  const msg = String(error?.message || '');
+  const status = parseInt(msg.slice(0, 3), 10);
+  if (status === 401) return 'Sessão expirada ou usuário não aprovado. Faça login novamente.';
+  if (status === 403) return 'Usuário sem permissão para visualizar atestados.';
+  if (status === 404) return 'Backend desatualizado (rota /api/envios não encontrada). Contate o suporte técnico.';
+  return msg || 'Falha ao carregar dados do projeto.';
+}
+
 async function carregarEnviosComFallback() {
   // Lê SEMPRE via backend autenticado (GET /api/envios exige usuário aprovado).
   // Não lê mais envios_atestados direto do Firestore — a regra é allow read: if false.
@@ -234,16 +243,27 @@ async function carregarEnviosComFallback() {
     throw new Error('Backend não configurado para ler envios.');
   }
 
+  let ultimoErro = null;
   for (const backendBase of backends) {
     try {
       const dados = await requisicaoBackendJson(`${backendBase}/api/envios?limit=10000`);
       return Array.isArray(dados) ? dados : [];
-    } catch {
-      // tenta próximo backend candidato
+    } catch (erro) {
+      ultimoErro = erro;
+      const status = parseInt(String(erro?.message || '').slice(0, 3), 10);
+      // 401/403/404 são respostas reais do backend (auth ou rota ausente) —
+      // repetir contra outro candidato só reproduz o mesmo erro. Só faz
+      // sentido tentar o próximo backend quando a falha foi de rede
+      // (fetch rejeitou / BACKEND_UNREACHABLE), não quando o servidor
+      // respondeu de fato.
+      if (status === 401 || status === 403 || status === 404) {
+        throw erro;
+      }
+      // tenta próximo backend candidato (falha de rede/timeout/5xx)
     }
   }
 
-  throw new Error(`Backends indisponíveis (${backends.join(', ')}).`);
+  throw ultimoErro || new Error(`Backends indisponíveis (${backends.join(', ')}).`);
 }
 
 function setDetalhesStatus(texto, tipo = 'info') {
@@ -1795,7 +1815,7 @@ async function carregarDetalhesProjeto() {
   setDetalhesStatus('Carregando informações preenchidas...', 'info');
 
   try {
-    // Busca no Firestore e faz fallback para backend quando necessário.
+    // Lê sempre via backend autenticado (GET /api/envios).
     todosRegistros = await carregarEnviosComFallback();
 
     const resultadoMigracao = await migrarStatusAtendimentoLegado(todosRegistros);
@@ -1822,7 +1842,7 @@ async function carregarDetalhesProjeto() {
     selecionarFiltroAtendimentoComResultados();
     aplicarFiltros();
   } catch (error) {
-    setDetalhesStatus(`Erro ao carregar informações: ${error?.message || 'Falha ao carregar dados do projeto.'}`, 'error');
+    setDetalhesStatus(`Erro ao carregar informações: ${mensagemErroEnvios(error)}`, 'error');
   }
 }
 
